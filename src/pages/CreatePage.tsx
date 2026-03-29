@@ -4,7 +4,7 @@ import { Video, Image, Palette, Globe, Mic, Sparkles, Play } from 'lucide-react'
 import { durationOptions, quickPrompts, styleOptions } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
-import { canProduce, addUsedSeconds } from '@/lib/usage';
+
 import { toast } from 'sonner';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType }[] = [
@@ -34,10 +34,6 @@ export default function CreatePage() {
       toast.error('اكتب فكرة أو وصفاً لإنتاج المحتوى.');
       return;
     }
-    if (!canProduce(duration)) {
-      toast.error('رصيدك المجاني غير كافٍ. الحد الأقصى 20 دقيقة.');
-      return;
-    }
 
     const id = `${Date.now()}`;
     const project: Project = {
@@ -55,7 +51,7 @@ export default function CreatePage() {
     setProcessing(true);
     setPrompt('');
 
-    addUsedSeconds(duration);
+    
 
     setTimeout(() => {
       updateProject(id, {

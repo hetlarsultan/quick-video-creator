@@ -1,31 +1,25 @@
-const USAGE_KEY = 'agon_usage_seconds_v1';
-const MAX_FREE_SECONDS = 20 * 60; // 20 minutes
-
+// App is always free — no usage limits
 export function getUsedSeconds(): number {
-  try {
-    return parseInt(localStorage.getItem(USAGE_KEY) || '0', 10);
-  } catch {
-    return 0;
-  }
+  return 0;
 }
 
-export function addUsedSeconds(seconds: number) {
-  const current = getUsedSeconds();
-  localStorage.setItem(USAGE_KEY, String(current + seconds));
+export function addUsedSeconds(_seconds: number) {
+  // No-op: app is always free
 }
 
 export function getRemainingSeconds(): number {
-  return Math.max(0, MAX_FREE_SECONDS - getUsedSeconds());
+  return Infinity;
 }
 
-export function canProduce(durationSec: number): boolean {
-  return getRemainingSeconds() >= durationSec;
+export function canProduce(_durationSec: number): boolean {
+  return true;
 }
 
 export function formatTime(totalSeconds: number): string {
+  if (!isFinite(totalSeconds)) return '∞';
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export const MAX_FREE_MINUTES = 20;
+export const MAX_FREE_MINUTES = Infinity;

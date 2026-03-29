@@ -8,7 +8,7 @@ export default function SettingsPage() {
   return (
     <div className="px-5 pb-24 pt-8">
       <h1 className="text-2xl font-black text-foreground">حسابك</h1>
-      <p className="mt-2 text-sm text-muted-foreground">تطبيق مجاني حتى ٢٠ دقيقة إنتاج فيديو مع حفظ المشاريع محلياً.</p>
+      <p className="mt-2 text-sm text-muted-foreground">تطبيق مجاني بالكامل مع حفظ المشاريع محلياً.</p>
 
       <div className="mt-5">
         <UsageBanner />
@@ -43,9 +43,9 @@ export default function SettingsPage() {
       </button>
 
       <div className="mt-6 rounded-2xl bg-card border border-border p-5">
-        <h3 className="text-base font-black text-foreground mb-2">خطة مجانية — ٢٠ دقيقة</h3>
+        <h3 className="text-base font-black text-foreground mb-2">مجاني إلى الأبد ✨</h3>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          استمتع بتحويل النص والصور والفيديو والصوت مجاناً حتى ٢٠ دقيقة من الإنتاج.
+          استمتع بتحويل النص والصور والفيديو والصوت بدون أي قيود أو رسوم.
         </p>
       </div>
     </div>

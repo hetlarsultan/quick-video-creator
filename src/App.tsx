@@ -11,6 +11,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import ScanPage from "./pages/ScanPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

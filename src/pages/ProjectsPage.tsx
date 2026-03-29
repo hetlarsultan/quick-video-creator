@@ -26,7 +26,7 @@ export default function ProjectsPage() {
           { label: 'قيد المعالجة', value: 'processing' },
         ]}
         value={filter}
-        onChange={setFilter}
+        onChange={(v) => setFilter(v as 'all' | 'ready' | 'processing')}
       />
 
       <div className="flex flex-col gap-3 mt-4">

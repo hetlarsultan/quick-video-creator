@@ -16,6 +16,7 @@ export interface Project {
   durationSec: number;
   style: string;
   outputs: string[];
+  generatedImageUrl?: string;
 }
 
 const STORAGE_KEY = 'agon_projects_v1';

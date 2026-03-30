@@ -69,18 +69,31 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Preview */}
-      <div className="w-full h-52 rounded-2xl gradient-card border border-border mb-5 flex flex-col items-center justify-center gap-2 relative overflow-hidden">
-        <div className="absolute inset-0 animate-shimmer" />
-        <span className="text-5xl relative z-10">
-          {project.type === 'text-to-video' ? '🎬' : project.type === 'text-to-image' ? '🎨' : project.type === 'text-to-audio' ? '🎙️' : '📸'}
-        </span>
-        <span className="text-xs text-muted-foreground relative z-10">معاينة المشروع</span>
-        {project.status === 'processing' && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-secondary">
-            <div className="h-full gradient-primary animate-pulse-glow" style={{ width: '60%' }} />
+      {project.generatedImageUrl ? (
+        <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden">
+          <img
+            src={project.generatedImageUrl}
+            alt={project.title}
+            className="w-full h-auto object-cover"
+          />
+          <div className="p-2 bg-card text-center">
+            <span className="text-xs text-success font-semibold">✨ تم الإنتاج بالذكاء الاصطناعي</span>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="w-full h-52 rounded-2xl gradient-card border border-border mb-5 flex flex-col items-center justify-center gap-2 relative overflow-hidden">
+          <div className="absolute inset-0 animate-shimmer" />
+          <span className="text-5xl relative z-10">
+            {project.type === 'text-to-video' ? '🎬' : project.type === 'text-to-image' ? '🎨' : project.type === 'text-to-audio' ? '🎙️' : '📸'}
+          </span>
+          <span className="text-xs text-muted-foreground relative z-10">معاينة المشروع</span>
+          {project.status === 'processing' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-secondary">
+              <div className="h-full gradient-primary animate-pulse-glow" style={{ width: '60%' }} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Status Badge */}
       <div className="mb-3">

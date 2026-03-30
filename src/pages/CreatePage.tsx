@@ -4,6 +4,7 @@ import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap } from 'lucide-r
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
+import { generateImage } from '@/lib/ai';
 import { toast } from 'sonner';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
@@ -37,7 +38,7 @@ export default function CreatePage() {
 
   const relevantTemplates = templates.filter(t => t.type === type);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast.error('اكتب فكرة أو وصفاً لإنتاج المحتوى.');
       return;
@@ -59,28 +60,52 @@ export default function CreatePage() {
     setProcessing(true);
     setProgress(0);
 
-    // Simulate progress
     const interval = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 95) { clearInterval(interval); return 95; }
-        return prev + Math.random() * 15;
+        if (prev >= 90) { clearInterval(interval); return 90; }
+        return prev + Math.random() * 10;
       });
-    }, 300);
+    }, 400);
 
-    setTimeout(() => {
-      clearInterval(interval);
-      setProgress(100);
-      updateProject(id, {
-        status: 'ready',
-        outputs: ['1080p.mp4', 'storyboard.png', 'audio.wav'],
-      });
+    try {
+      const isImageType = type === 'text-to-image';
+      
+      if (isImageType) {
+        // Real AI image generation
+        const result = await generateImage(prompt, style);
+        clearInterval(interval);
+        setProgress(100);
+        updateProject(id, {
+          status: 'ready',
+          outputs: ['generated-image.png'],
+          generatedImageUrl: result.imageUrl,
+        });
+        toast.success('تم إنتاج الصورة بنجاح بالذكاء الاصطناعي! 🎨');
+      } else {
+        // Simulated for video/audio types
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        clearInterval(interval);
+        setProgress(100);
+        updateProject(id, {
+          status: 'ready',
+          outputs: type === 'text-to-audio' ? ['audio.wav'] : ['1080p.mp4', 'storyboard.png'],
+        });
+        toast.success('تم الإنتاج بنجاح!');
+      }
+      
       setTimeout(() => {
         setProcessing(false);
         setPrompt('');
         setProgress(0);
         navigate(`/project/${id}`);
       }, 500);
-    }, 2500);
+    } catch (err: any) {
+      clearInterval(interval);
+      setProcessing(false);
+      setProgress(0);
+      updateProject(id, { status: 'ready' });
+      toast.error(err.message || 'حدث خطأ أثناء الإنتاج');
+    }
   };
 
   return (

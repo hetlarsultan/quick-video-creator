@@ -40,9 +40,12 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
-  const persist = useCallback((next: Project[]) => {
-    setProjects(next);
-    saveProjects(next);
+  const persist = useCallback((updater: (prev: Project[]) => Project[]) => {
+    setProjects(prev => {
+      const next = updater(prev);
+      saveProjects(next);
+      return next;
+    });
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {
@@ -66,11 +69,11 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       projects,
       loading,
       favorites,
-      addProject: (project) => persist([project, ...projects]),
+      addProject: (project) => persist(prev => [project, ...prev]),
       updateProject: (id, patch) =>
-        persist(projects.map((item) => (item.id === id ? { ...item, ...patch } : item))),
-      deleteProject: (id) => persist(projects.filter(item => item.id !== id)),
-      clearProjects: () => persist([]),
+        persist(prev => prev.map((item) => (item.id === id ? { ...item, ...patch } : item))),
+      deleteProject: (id) => persist(prev => prev.filter(item => item.id !== id)),
+      clearProjects: () => persist(() => []),
       toggleFavorite,
       isFavorite: (id) => favorites.has(id),
       stats,

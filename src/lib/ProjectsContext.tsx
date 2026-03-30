@@ -40,9 +40,12 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
-  const persist = useCallback((next: Project[]) => {
-    setProjects(next);
-    saveProjects(next);
+  const persist = useCallback((updater: (prev: Project[]) => Project[]) => {
+    setProjects(prev => {
+      const next = updater(prev);
+      saveProjects(next);
+      return next;
+    });
   }, []);
 
   const toggleFavorite = useCallback((id: string) => {

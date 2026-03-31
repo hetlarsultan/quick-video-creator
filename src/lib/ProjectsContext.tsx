@@ -84,8 +84,10 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
 }
 
-export function useProjects() {
+export function useProjects(): ProjectsContextValue {
   const ctx = useContext(ProjectsContext);
-  if (!ctx) throw new Error('ProjectsProvider missing');
+  if (!ctx) {
+    throw new Error('ProjectsProvider missing — make sure <ProjectsProvider> wraps your component tree');
+  }
   return ctx;
 }

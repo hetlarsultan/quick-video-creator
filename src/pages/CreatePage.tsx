@@ -6,6 +6,7 @@ import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
 import { toast } from 'sonner';
+import ImagePicker from '@/components/ImagePicker';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
   { label: 'نص ➜ فيديو', value: 'text-to-video', icon: Video, emoji: '🎬' },
@@ -28,6 +29,7 @@ export default function CreatePage() {
   const [style, setStyle] = useState(styleOptions[0]);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [sourceImage, setSourceImage] = useState<string | null>(null);
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -43,6 +45,10 @@ export default function CreatePage() {
       toast.error('اكتب فكرة أو وصفاً لإنتاج المحتوى.');
       return;
     }
+    if (type === 'image-to-video' && !sourceImage) {
+      toast.error('اختر صورة أولاً لتحويلها إلى فيديو.');
+      return;
+    }
 
     const id = `${Date.now()}`;
     const project: Project = {
@@ -55,6 +61,7 @@ export default function CreatePage() {
       durationSec: duration,
       style,
       outputs: [],
+      sourceImageUrl: type === 'image-to-video' ? sourceImage || undefined : undefined,
     };
     addProject(project);
     setProcessing(true);
@@ -71,7 +78,6 @@ export default function CreatePage() {
       const isImageType = type === 'text-to-image';
       
       if (isImageType) {
-        // Real AI image generation
         const result = await generateImage(prompt, style);
         clearInterval(interval);
         setProgress(100);
@@ -82,7 +88,6 @@ export default function CreatePage() {
         });
         toast.success('تم إنتاج الصورة بنجاح بالذكاء الاصطناعي! 🎨');
       } else {
-        // Simulated for video/audio types
         await new Promise(resolve => setTimeout(resolve, 2500));
         clearInterval(interval);
         setProgress(100);
@@ -97,6 +102,7 @@ export default function CreatePage() {
         setProcessing(false);
         setPrompt('');
         setProgress(0);
+        setSourceImage(null);
         navigate(`/project/${id}`);
       }, 500);
     } catch (err: any) {
@@ -118,7 +124,6 @@ export default function CreatePage() {
       <div className="grid grid-cols-2 gap-2">
         {typeOptions.map((option) => {
           const active = option.value === type;
-          const Icon = option.icon;
           return (
             <button
               key={option.value}
@@ -131,6 +136,18 @@ export default function CreatePage() {
           );
         })}
       </div>
+
+      {/* Image Picker for image-to-video */}
+      {type === 'image-to-video' && (
+        <>
+          <h2 className="mt-5 mb-2 text-base font-bold text-foreground">اختر الصورة</h2>
+          <ImagePicker
+            selectedImage={sourceImage}
+            onImageSelect={setSourceImage}
+            onClear={() => setSourceImage(null)}
+          />
+        </>
+      )}
 
       {/* Quick Templates */}
       {relevantTemplates.length > 0 && (

@@ -1,7 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { Sparkles, Timer, Download, FileText, ArrowRight, Heart, Trash2, Share2, CheckCircle, Clock } from 'lucide-react';
+import { Sparkles, Timer, Download, FileText, ArrowRight, Heart, Trash2, Share2, CheckCircle, Clock, Eye } from 'lucide-react';
 import { useProjects } from '@/lib/ProjectsContext';
 import { toast } from 'sonner';
+import { useState } from 'react';
 
 const typeLabel: Record<string, string> = {
   'text-to-video': '🎬 نص ➜ فيديو',
@@ -11,11 +12,21 @@ const typeLabel: Record<string, string> = {
   'text-to-audio': '🎙️ نص ➜ صوت',
 };
 
+function downloadDataUrl(dataUrl: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { projects, deleteProject, toggleFavorite, isFavorite } = useProjects();
   const project = projects.find((p) => p.id === id);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   if (!project) {
     return (
@@ -29,6 +40,8 @@ export default function ProjectDetailPage() {
 
   const fav = isFavorite(project.id);
   const created = new Date(project.createdAt);
+  const hasImage = !!project.generatedImageUrl;
+  const hasSource = !!project.sourceImageUrl;
 
   const handleDelete = () => {
     if (confirm('هل تريد حذف هذا المشروع؟')) {
@@ -44,6 +57,30 @@ export default function ProjectDetailPage() {
     } else {
       navigator.clipboard.writeText(`${project.title}\n${project.prompt}`);
       toast.success('تم نسخ تفاصيل المشروع!');
+    }
+  };
+
+  const handleDownload = () => {
+    if (hasImage) {
+      downloadDataUrl(project.generatedImageUrl!, `${project.title}.png`);
+      toast.success('تم تنزيل الصورة إلى جهازك!');
+    } else if (hasSource) {
+      downloadDataUrl(project.sourceImageUrl!, `${project.title}-source.png`);
+      toast.success('تم تنزيل الصورة المصدر!');
+    } else {
+      toast.info('لا يوجد ملف قابل للتنزيل حالياً.');
+    }
+  };
+
+  const handleDownloadFile = (filename: string) => {
+    if (hasImage && filename.includes('image')) {
+      downloadDataUrl(project.generatedImageUrl!, filename);
+      toast.success(`تم تنزيل ${filename}`);
+    } else if (hasImage) {
+      downloadDataUrl(project.generatedImageUrl!, filename);
+      toast.success(`تم تنزيل ${filename}`);
+    } else {
+      toast.info('هذا الملف غير متوفر للتنزيل حالياً (محاكاة).');
     }
   };
 
@@ -69,15 +106,26 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Preview */}
-      {project.generatedImageUrl ? (
-        <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden">
+      {(hasImage || hasSource) ? (
+        <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden relative">
           <img
-            src={project.generatedImageUrl}
+            src={hasImage ? project.generatedImageUrl : project.sourceImageUrl}
             alt={project.title}
-            className="w-full h-auto object-cover"
+            className="w-full h-auto object-cover cursor-pointer"
+            onClick={() => setPreviewOpen(true)}
           />
+          <div className="absolute top-2 right-2">
+            <button
+              onClick={() => setPreviewOpen(true)}
+              className="bg-background/80 backdrop-blur-sm rounded-full p-2 hover:bg-background transition-colors"
+            >
+              <Eye className="h-4 w-4 text-foreground" />
+            </button>
+          </div>
           <div className="p-2 bg-card text-center">
-            <span className="text-xs text-success font-semibold">✨ تم الإنتاج بالذكاء الاصطناعي</span>
+            <span className="text-xs text-success font-semibold">
+              {hasImage ? '✨ تم الإنتاج بالذكاء الاصطناعي' : '📸 صورة مصدر المشروع'}
+            </span>
           </div>
         </div>
       ) : (
@@ -92,6 +140,26 @@ export default function ProjectDetailPage() {
               <div className="h-full gradient-primary animate-pulse-glow" style={{ width: '60%' }} />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Fullscreen Preview Modal */}
+      {previewOpen && (hasImage || hasSource) && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <img
+            src={hasImage ? project.generatedImageUrl : project.sourceImageUrl}
+            alt={project.title}
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+          <button
+            className="absolute top-4 left-4 text-white bg-white/20 rounded-full px-4 py-2 text-sm font-semibold"
+            onClick={() => setPreviewOpen(false)}
+          >
+            إغلاق ✕
+          </button>
         </div>
       )}
 
@@ -141,7 +209,7 @@ export default function ProjectDetailPage() {
               <span className="text-sm text-foreground">{file}</span>
             </div>
             <button
-              onClick={() => toast.success(`تم تنزيل ${file}`)}
+              onClick={() => handleDownloadFile(file)}
               className="text-xs text-primary font-semibold"
             >
               تحميل
@@ -157,9 +225,9 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Download All */}
-      {project.outputs.length > 0 && (
+      {project.status === 'ready' && (
         <button
-          onClick={() => toast.success('تم تنزيل جميع الملفات بدون علامة مائية.')}
+          onClick={handleDownload}
           className="mt-6 w-full rounded-2xl gradient-primary py-4 text-base font-bold text-primary-foreground flex items-center justify-center gap-2 glow-primary hover:scale-[1.01] transition-all"
         >
           <Download className="h-4 w-4" />

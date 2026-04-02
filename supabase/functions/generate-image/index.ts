@@ -29,68 +29,73 @@ serve(async (req) => {
       );
     }
 
-    const enhancedPrompt = style
-      ? `Create an image in ${style} style: ${prompt}`
-      : `Create an image: ${prompt}`;
+    // Build a clean prompt - style is already embedded in the prompt from client
+    const finalPrompt = style && !prompt.toLowerCase().includes(style.toLowerCase())
+      ? `${prompt}. Art style: ${style}`
+      : prompt;
 
-    console.log("Generating image with prompt:", enhancedPrompt);
+    console.log("Generating image with prompt:", finalPrompt);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [
-          {
-            role: "user",
-            content: enhancedPrompt,
-          },
-        ],
-        modalities: ["image", "text"],
-      }),
-    });
+    // Try with flash-image first, fallback to pro if safety blocked
+    const models = ["google/gemini-2.5-flash-image", "google/gemini-3.1-flash-image-preview"];
+    
+    for (const model of models) {
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "user",
+              content: finalPrompt,
+            },
+          ],
+          modalities: ["image", "text"],
+        }),
+      });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      if (!response.ok) {
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "يرجى إضافة رصيد لحساب Lovable AI" }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const errorText = await response.text();
+        console.error(`AI Gateway error (${model}):`, response.status, errorText);
+        continue; // Try next model
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "يرجى إضافة رصيد لحساب Lovable AI" }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+
+      const data = await response.json();
+      const finishReason = data.choices?.[0]?.native_finish_reason || data.choices?.[0]?.finish_reason;
+      const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+      const textResponse = data.choices?.[0]?.message?.content || "";
+
+      // If blocked by safety, try next model
+      if (finishReason === "IMAGE_SAFETY" || !imageUrl) {
+        console.log(`Model ${model} blocked (${finishReason}), trying next...`);
+        continue;
       }
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+
       return new Response(
-        JSON.stringify({ error: "حدث خطأ في إنتاج الصورة" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ imageUrl, description: textResponse }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    const textResponse = data.choices?.[0]?.message?.content || "";
-
-    if (!imageUrl) {
-      console.error("No image returned from AI:", JSON.stringify(data));
-      return new Response(
-        JSON.stringify({ error: "لم يتم إنتاج صورة، حاول بوصف مختلف" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
+    // All models failed - return friendly error
     return new Response(
-      JSON.stringify({
-        imageUrl,
-        description: textResponse,
-      }),
+      JSON.stringify({ error: "تعذر إنتاج الصورة. جرّب وصفاً مختلفاً أو أبسط." }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {

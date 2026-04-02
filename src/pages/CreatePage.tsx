@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap } from 'lucide-react';
+import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User } from 'lucide-react';
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
@@ -16,6 +16,66 @@ const typeOptions: { label: string; value: ProjectType; icon: React.ElementType;
   { label: 'نص ➜ صوت', value: 'text-to-audio', icon: Mic, emoji: '🎙️' },
 ];
 
+const characterOptions = [
+  { label: 'بدون شخصية', value: 'none', emoji: '🚫' },
+  { label: 'شخصية حقيقية', value: 'realistic', emoji: '🧑' },
+  { label: 'شخصية كرتونية', value: 'cartoon', emoji: '🧸' },
+  { label: 'شخصية خيالية', value: 'fantasy', emoji: '🧙' },
+];
+
+const sceneOptions = [
+  { label: 'بدون خلفية', value: 'none', emoji: '⬛' },
+  { label: 'طبيعة متحركة', value: 'animated-nature', emoji: '🌿' },
+  { label: 'مدينة ليلية', value: 'night-city', emoji: '🌃' },
+  { label: 'فضاء', value: 'space', emoji: '🚀' },
+  { label: 'تحت الماء', value: 'underwater', emoji: '🌊' },
+];
+
+function buildAIPrompt(type: ProjectType, prompt: string, style: string, character: string, scene: string): string {
+  let aiPrompt = '';
+
+  switch (type) {
+    case 'text-to-video':
+      aiPrompt = `Create a cinematic movie scene storyboard frame: ${prompt}`;
+      break;
+    case 'image-to-video':
+      aiPrompt = `Create an animated version of this scene with motion effects: ${prompt}`;
+      break;
+    case 'text-to-image':
+      aiPrompt = `Create a high quality image: ${prompt}`;
+      break;
+    case 'scene-generator':
+      aiPrompt = `Create a detailed panoramic scene with animated elements and dynamic lighting: ${prompt}`;
+      break;
+    case 'text-to-audio':
+      aiPrompt = `Create a visual audio waveform artwork representing this sound: ${prompt}`;
+      break;
+    default:
+      aiPrompt = `Create an image: ${prompt}`;
+  }
+
+  if (character !== 'none') {
+    const charMap: Record<string, string> = {
+      realistic: 'Include a realistic human character',
+      cartoon: 'Include a cute cartoon character',
+      fantasy: 'Include a magical fantasy character with special effects',
+    };
+    aiPrompt += `. ${charMap[character]}`;
+  }
+
+  if (scene !== 'none') {
+    const sceneMap: Record<string, string> = {
+      'animated-nature': 'with animated nature background, flowing leaves, moving clouds',
+      'night-city': 'with neon-lit night city background, glowing lights',
+      'space': 'with deep space background, stars, galaxies, nebulas',
+      'underwater': 'with underwater ocean background, coral reefs, bubbles',
+    };
+    aiPrompt += `. Set in ${sceneMap[scene]}`;
+  }
+
+  return aiPrompt;
+}
+
 export default function CreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -30,6 +90,8 @@ export default function CreatePage() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [sourceImage, setSourceImage] = useState<string | null>(null);
+  const [character, setCharacter] = useState('none');
+  const [scene, setScene] = useState('none');
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -37,8 +99,9 @@ export default function CreatePage() {
   }, [preset, templatePrompt]);
 
   const example = useMemo(() => quickPrompts[Math.floor(Math.random() * quickPrompts.length)], []);
-
   const relevantTemplates = templates.filter(t => t.type === type);
+
+  const showCharacterScene = ['text-to-video', 'scene-generator', 'text-to-image', 'image-to-video'].includes(type);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -70,34 +133,38 @@ export default function CreatePage() {
     const interval = setInterval(() => {
       setProgress(prev => {
         if (prev >= 90) { clearInterval(interval); return 90; }
-        return prev + Math.random() * 10;
+        return prev + Math.random() * 8;
       });
-    }, 400);
+    }, 500);
 
     try {
-      const isImageType = type === 'text-to-image';
+      const aiPrompt = buildAIPrompt(type, prompt, style, character, scene);
+      const result = await generateImage(aiPrompt, style);
       
-      if (isImageType) {
-        const result = await generateImage(prompt, style);
-        clearInterval(interval);
-        setProgress(100);
-        updateProject(id, {
-          status: 'ready',
-          outputs: ['generated-image.png'],
-          generatedImageUrl: result.imageUrl,
-        });
-        toast.success('تم إنتاج الصورة بنجاح بالذكاء الاصطناعي! 🎨');
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 2500));
-        clearInterval(interval);
-        setProgress(100);
-        updateProject(id, {
-          status: 'ready',
-          outputs: type === 'text-to-audio' ? ['audio.wav'] : ['1080p.mp4', 'storyboard.png'],
-        });
-        toast.success('تم الإنتاج بنجاح!');
-      }
-      
+      clearInterval(interval);
+      setProgress(100);
+
+      const outputFiles = type === 'text-to-audio' 
+        ? ['audio.wav'] 
+        : type === 'text-to-image' 
+          ? ['generated-image.png'] 
+          : ['1080p.mp4', 'storyboard.png'];
+
+      updateProject(id, {
+        status: 'ready',
+        outputs: outputFiles,
+        generatedImageUrl: result.imageUrl,
+      });
+
+      const successMessages: Record<ProjectType, string> = {
+        'text-to-video': 'تم إنتاج مشهد الفيديو بنجاح! 🎬',
+        'image-to-video': 'تم تحويل الصورة بنجاح! 📸',
+        'text-to-image': 'تم إنتاج الصورة بنجاح! 🎨',
+        'scene-generator': 'تم إنتاج المشهد بنجاح! 🌍',
+        'text-to-audio': 'تم إنتاج الصوت بنجاح! 🎙️',
+      };
+      toast.success(successMessages[type]);
+
       setTimeout(() => {
         setProcessing(false);
         setPrompt('');
@@ -146,6 +213,41 @@ export default function CreatePage() {
             onImageSelect={setSourceImage}
             onClear={() => setSourceImage(null)}
           />
+        </>
+      )}
+
+      {/* Character & Scene Options */}
+      {showCharacterScene && (
+        <>
+          <h2 className="mt-5 mb-2 text-base font-bold text-foreground flex items-center gap-1.5">
+            <User className="h-4 w-4 text-primary" /> الشخصيات والمشاهد
+          </h2>
+          
+          <label className="text-sm text-muted-foreground mb-2 block">نوع الشخصية</label>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {characterOptions.map(c => (
+              <button
+                key={c.value}
+                onClick={() => setCharacter(c.value)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${c.value === character ? 'gradient-primary text-primary-foreground' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+              >
+                <span>{c.emoji}</span> {c.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="text-sm text-muted-foreground mb-2 block">الخلفية والمشهد</label>
+          <div className="flex gap-2 flex-wrap">
+            {sceneOptions.map(s => (
+              <button
+                key={s.value}
+                onClick={() => setScene(s.value)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${s.value === scene ? 'gradient-primary text-primary-foreground' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+              >
+                <span>{s.emoji}</span> {s.label}
+              </button>
+            ))}
+          </div>
         </>
       )}
 

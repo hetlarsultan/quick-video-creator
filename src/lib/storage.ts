@@ -21,19 +21,73 @@ export interface Project {
 }
 
 const STORAGE_KEY = 'agon_projects_v1';
+const MAX_INLINE_MEDIA_LENGTH = 150_000;
+
+function isInlineMedia(value?: string) {
+  return typeof value === 'string' && value.startsWith('data:');
+}
+
+function trimStoredMedia(value?: string) {
+  if (!value) return undefined;
+  if (!isInlineMedia(value)) return value;
+  return value.length <= MAX_INLINE_MEDIA_LENGTH ? value : undefined;
+}
+
+function compactProject(project: Project): Project {
+  return {
+    ...project,
+    generatedImageUrl: trimStoredMedia(project.generatedImageUrl),
+    sourceImageUrl: trimStoredMedia(project.sourceImageUrl),
+    outputs: Array.isArray(project.outputs) ? project.outputs.slice(0, 12) : [],
+  };
+}
+
+function metadataOnlyProject(project: Project): Project {
+  return {
+    ...project,
+    generatedImageUrl: isInlineMedia(project.generatedImageUrl) ? undefined : project.generatedImageUrl,
+    sourceImageUrl: undefined,
+    outputs: Array.isArray(project.outputs) ? project.outputs.slice(0, 6) : [],
+  };
+}
+
+function tryWriteProjects(projects: Project[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
 
 export function loadProjects(): Project[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as Project[];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((item) => compactProject(item as Project)) : [];
   } catch {
     return [];
   }
 }
 
 export function saveProjects(projects: Project[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  const compactProjects = projects.map(compactProject);
+
+  try {
+    tryWriteProjects(compactProjects);
+    return;
+  } catch (error) {
+    if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') {
+      throw error;
+    }
+  }
+
+  try {
+    tryWriteProjects(compactProjects.map(metadataOnlyProject));
+    return;
+  } catch (error) {
+    if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') {
+      throw error;
+    }
+  }
+
+  tryWriteProjects(compactProjects.map(metadataOnlyProject).slice(0, 20));
 }
 
 export function buildProjectTitle(type: ProjectType, prompt: string) {

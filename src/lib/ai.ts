@@ -20,7 +20,7 @@ export async function generateImage(prompt: string, style?: string): Promise<Gen
   }
 
   if (!data?.imageUrl) {
-    throw new Error('لم يتم إنتاج صورة');
+    throw new Error(data?.error || 'لم يتم إنتاج صورة');
   }
 
   return {

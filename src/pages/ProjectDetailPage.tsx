@@ -12,13 +12,34 @@ const typeLabel: Record<string, string> = {
   'text-to-audio': '🎙️ نص ➜ صوت',
 };
 
-function downloadDataUrl(dataUrl: string, filename: string) {
-  const link = document.createElement('a');
-  link.href = dataUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+function downloadBase64(dataUrl: string, filename: string) {
+  // Handle both data URLs and regular URLs
+  if (dataUrl.startsWith('data:')) {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    // For regular URLs, fetch and convert to blob
+    fetch(dataUrl)
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => {
+        // Fallback: open in new tab
+        window.open(dataUrl, '_blank');
+      });
+  }
 }
 
 export default function ProjectDetailPage() {
@@ -42,6 +63,7 @@ export default function ProjectDetailPage() {
   const created = new Date(project.createdAt);
   const hasImage = !!project.generatedImageUrl;
   const hasSource = !!project.sourceImageUrl;
+  const previewImage = hasImage ? project.generatedImageUrl : hasSource ? project.sourceImageUrl : null;
 
   const handleDelete = () => {
     if (confirm('هل تريد حذف هذا المشروع؟')) {
@@ -60,12 +82,12 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownloadAll = () => {
     if (hasImage) {
-      downloadDataUrl(project.generatedImageUrl!, `${project.title}.png`);
-      toast.success('تم تنزيل الصورة إلى جهازك!');
+      downloadBase64(project.generatedImageUrl!, `${project.title}.png`);
+      toast.success('تم تنزيل الملف إلى جهازك!');
     } else if (hasSource) {
-      downloadDataUrl(project.sourceImageUrl!, `${project.title}-source.png`);
+      downloadBase64(project.sourceImageUrl!, `${project.title}-source.png`);
       toast.success('تم تنزيل الصورة المصدر!');
     } else {
       toast.info('لا يوجد ملف قابل للتنزيل حالياً.');
@@ -73,14 +95,12 @@ export default function ProjectDetailPage() {
   };
 
   const handleDownloadFile = (filename: string) => {
-    if (hasImage && filename.includes('image')) {
-      downloadDataUrl(project.generatedImageUrl!, filename);
-      toast.success(`تم تنزيل ${filename}`);
-    } else if (hasImage) {
-      downloadDataUrl(project.generatedImageUrl!, filename);
+    if (hasImage) {
+      const ext = filename.split('.').pop() || 'png';
+      downloadBase64(project.generatedImageUrl!, filename);
       toast.success(`تم تنزيل ${filename}`);
     } else {
-      toast.info('هذا الملف غير متوفر للتنزيل حالياً (محاكاة).');
+      toast.info('هذا الملف غير متوفر للتنزيل حالياً.');
     }
   };
 
@@ -106,10 +126,10 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Preview */}
-      {(hasImage || hasSource) ? (
+      {previewImage ? (
         <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden relative">
           <img
-            src={hasImage ? project.generatedImageUrl : project.sourceImageUrl}
+            src={previewImage}
             alt={project.title}
             className="w-full h-auto object-cover cursor-pointer"
             onClick={() => setPreviewOpen(true)}
@@ -130,11 +150,10 @@ export default function ProjectDetailPage() {
         </div>
       ) : (
         <div className="w-full h-52 rounded-2xl gradient-card border border-border mb-5 flex flex-col items-center justify-center gap-2 relative overflow-hidden">
-          <div className="absolute inset-0 animate-shimmer" />
-          <span className="text-5xl relative z-10">
+          <span className="text-5xl">
             {project.type === 'text-to-video' ? '🎬' : project.type === 'text-to-image' ? '🎨' : project.type === 'text-to-audio' ? '🎙️' : '📸'}
           </span>
-          <span className="text-xs text-muted-foreground relative z-10">معاينة المشروع</span>
+          <span className="text-xs text-muted-foreground">معاينة المشروع</span>
           {project.status === 'processing' && (
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-secondary">
               <div className="h-full gradient-primary animate-pulse-glow" style={{ width: '60%' }} />
@@ -144,13 +163,13 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Fullscreen Preview Modal */}
-      {previewOpen && (hasImage || hasSource) && (
+      {previewOpen && previewImage && (
         <div
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
           onClick={() => setPreviewOpen(false)}
         >
           <img
-            src={hasImage ? project.generatedImageUrl : project.sourceImageUrl}
+            src={previewImage}
             alt={project.title}
             className="max-w-full max-h-full object-contain rounded-lg"
           />
@@ -159,6 +178,16 @@ export default function ProjectDetailPage() {
             onClick={() => setPreviewOpen(false)}
           >
             إغلاق ✕
+          </button>
+          <button
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white bg-primary/80 rounded-full px-6 py-2 text-sm font-semibold flex items-center gap-2"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDownloadAll();
+            }}
+          >
+            <Download className="h-4 w-4" />
+            تنزيل
           </button>
         </div>
       )}
@@ -225,9 +254,9 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Download All */}
-      {project.status === 'ready' && (
+      {project.status === 'ready' && hasImage && (
         <button
-          onClick={handleDownload}
+          onClick={handleDownloadAll}
           className="mt-6 w-full rounded-2xl gradient-primary py-4 text-base font-bold text-primary-foreground flex items-center justify-center gap-2 glow-primary hover:scale-[1.01] transition-all"
         >
           <Download className="h-4 w-4" />

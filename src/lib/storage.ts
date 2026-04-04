@@ -17,6 +17,7 @@ export interface Project {
   style: string;
   outputs: string[];
   generatedImageUrl?: string;
+  generatedVideoUrl?: string;
   sourceImageUrl?: string;
 }
 

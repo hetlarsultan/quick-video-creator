@@ -1,8 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { Sparkles, Timer, Download, FileText, ArrowRight, Heart, Trash2, Share2, CheckCircle, Clock, Eye } from 'lucide-react';
+import { Sparkles, Timer, Download, FileText, ArrowRight, Heart, Trash2, Share2, CheckCircle, Clock, Eye, Play, Volume2, VolumeX } from 'lucide-react';
 import { useProjects } from '@/lib/ProjectsContext';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { speakText } from '@/lib/tts';
 
 const typeLabel: Record<string, string> = {
   'text-to-video': '🎬 نص ➜ فيديو',
@@ -12,33 +13,28 @@ const typeLabel: Record<string, string> = {
   'text-to-audio': '🎙️ نص ➜ صوت',
 };
 
-function downloadBase64(dataUrl: string, filename: string) {
-  // Handle both data URLs and regular URLs
-  if (dataUrl.startsWith('data:')) {
+function downloadBlob(url: string, filename: string) {
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
     const link = document.createElement('a');
-    link.href = dataUrl;
+    link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   } else {
-    // For regular URLs, fetch and convert to blob
-    fetch(dataUrl)
+    fetch(url)
       .then(res => res.blob())
       .then(blob => {
-        const url = URL.createObjectURL(blob);
+        const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = url;
+        link.href = blobUrl;
         link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(blobUrl);
       })
-      .catch(() => {
-        // Fallback: open in new tab
-        window.open(dataUrl, '_blank');
-      });
+      .catch(() => window.open(url, '_blank'));
   }
 }
 
@@ -48,6 +44,9 @@ export default function ProjectDetailPage() {
   const { projects, deleteProject, toggleFavorite, isFavorite } = useProjects();
   const project = projects.find((p) => p.id === id);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   if (!project) {
     return (
@@ -62,8 +61,11 @@ export default function ProjectDetailPage() {
   const fav = isFavorite(project.id);
   const created = new Date(project.createdAt);
   const hasImage = !!project.generatedImageUrl;
+  const hasVideo = !!project.generatedVideoUrl;
   const hasSource = !!project.sourceImageUrl;
   const previewImage = hasImage ? project.generatedImageUrl : hasSource ? project.sourceImageUrl : null;
+  const isVideoProject = ['text-to-video', 'image-to-video', 'scene-generator'].includes(project.type);
+  const isAudioProject = project.type === 'text-to-audio';
 
   const handleDelete = () => {
     if (confirm('هل تريد حذف هذا المشروع؟')) {
@@ -83,11 +85,14 @@ export default function ProjectDetailPage() {
   };
 
   const handleDownloadAll = () => {
-    if (hasImage) {
-      downloadBase64(project.generatedImageUrl!, `${project.title}.png`);
+    if (hasVideo) {
+      downloadBlob(project.generatedVideoUrl!, `${project.title}.webm`);
+      toast.success('تم تنزيل الفيديو إلى جهازك!');
+    } else if (hasImage) {
+      downloadBlob(project.generatedImageUrl!, `${project.title}.png`);
       toast.success('تم تنزيل الملف إلى جهازك!');
     } else if (hasSource) {
-      downloadBase64(project.sourceImageUrl!, `${project.title}-source.png`);
+      downloadBlob(project.sourceImageUrl!, `${project.title}-source.png`);
       toast.success('تم تنزيل الصورة المصدر!');
     } else {
       toast.info('لا يوجد ملف قابل للتنزيل حالياً.');
@@ -95,12 +100,39 @@ export default function ProjectDetailPage() {
   };
 
   const handleDownloadFile = (filename: string) => {
+    if (filename.endsWith('.webm') || filename.endsWith('.mp4')) {
+      if (hasVideo) {
+        downloadBlob(project.generatedVideoUrl!, filename);
+        toast.success(`تم تنزيل ${filename}`);
+        return;
+      }
+    }
     if (hasImage) {
-      const ext = filename.split('.').pop() || 'png';
-      downloadBase64(project.generatedImageUrl!, filename);
+      downloadBlob(project.generatedImageUrl!, filename);
       toast.success(`تم تنزيل ${filename}`);
     } else {
       toast.info('هذا الملف غير متوفر للتنزيل حالياً.');
+    }
+  };
+
+  const handlePlayVideo = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleNarrate = () => {
+    if (isSpeaking) {
+      speechSynthesis.cancel();
+      setIsSpeaking(false);
+    } else {
+      setIsSpeaking(true);
+      speakText(project.prompt, () => setIsSpeaking(false));
     }
   };
 
@@ -125,8 +157,50 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Preview */}
-      {previewImage ? (
+      {/* Video Preview */}
+      {hasVideo ? (
+        <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden relative bg-black">
+          <video
+            ref={videoRef}
+            src={project.generatedVideoUrl}
+            className="w-full h-auto"
+            loop
+            playsInline
+            onClick={handlePlayVideo}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+          />
+          {/* Play overlay */}
+          {!isPlaying && (
+            <div
+              className="absolute inset-0 flex items-center justify-center bg-black/30 cursor-pointer"
+              onClick={handlePlayVideo}
+            >
+              <div className="w-16 h-16 rounded-full bg-primary/90 flex items-center justify-center glow-primary">
+                <Play className="h-7 w-7 text-primary-foreground ml-1" />
+              </div>
+            </div>
+          )}
+          <div className="absolute top-2 right-2 flex gap-2">
+            <button
+              onClick={() => setPreviewOpen(true)}
+              className="bg-background/80 backdrop-blur-sm rounded-full p-2 hover:bg-background transition-colors"
+            >
+              <Eye className="h-4 w-4 text-foreground" />
+            </button>
+          </div>
+          <div className="p-2 bg-card text-center flex items-center justify-center gap-3">
+            <span className="text-xs text-success font-semibold">🎬 فيديو متحرك بالذكاء الاصطناعي</span>
+            <button
+              onClick={handleNarrate}
+              className={`flex items-center gap-1 text-xs font-semibold rounded-full px-3 py-1 transition-all ${isSpeaking ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
+            >
+              {isSpeaking ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+              {isSpeaking ? 'إيقاف' : 'رواية'}
+            </button>
+          </div>
+        </div>
+      ) : previewImage ? (
         <div className="w-full rounded-2xl border border-border mb-5 overflow-hidden relative">
           <img
             src={previewImage}
@@ -142,10 +216,19 @@ export default function ProjectDetailPage() {
               <Eye className="h-4 w-4 text-foreground" />
             </button>
           </div>
-          <div className="p-2 bg-card text-center">
+          <div className="p-2 bg-card text-center flex items-center justify-center gap-3">
             <span className="text-xs text-success font-semibold">
               {hasImage ? '✨ تم الإنتاج بالذكاء الاصطناعي' : '📸 صورة مصدر المشروع'}
             </span>
+            {(isAudioProject || isVideoProject) && (
+              <button
+                onClick={handleNarrate}
+                className={`flex items-center gap-1 text-xs font-semibold rounded-full px-3 py-1 transition-all ${isSpeaking ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent'}`}
+              >
+                {isSpeaking ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                {isSpeaking ? 'إيقاف' : 'رواية'}
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -163,16 +246,28 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Fullscreen Preview Modal */}
-      {previewOpen && previewImage && (
+      {previewOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
           onClick={() => setPreviewOpen(false)}
         >
-          <img
-            src={previewImage}
-            alt={project.title}
-            className="max-w-full max-h-full object-contain rounded-lg"
-          />
+          {hasVideo ? (
+            <video
+              src={project.generatedVideoUrl}
+              className="max-w-full max-h-full rounded-lg"
+              controls
+              autoPlay
+              loop
+              playsInline
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : previewImage ? (
+            <img
+              src={previewImage}
+              alt={project.title}
+              className="max-w-full max-h-full object-contain rounded-lg"
+            />
+          ) : null}
           <button
             className="absolute top-4 left-4 text-white bg-white/20 rounded-full px-4 py-2 text-sm font-semibold"
             onClick={() => setPreviewOpen(false)}
@@ -254,13 +349,13 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Download All */}
-      {project.status === 'ready' && hasImage && (
+      {project.status === 'ready' && (hasImage || hasVideo) && (
         <button
           onClick={handleDownloadAll}
           className="mt-6 w-full rounded-2xl gradient-primary py-4 text-base font-bold text-primary-foreground flex items-center justify-center gap-2 glow-primary hover:scale-[1.01] transition-all"
         >
           <Download className="h-4 w-4" />
-          تحميل الكل — مجاناً
+          {hasVideo ? 'تحميل الفيديو — مجاناً' : 'تحميل الكل — مجاناً'}
         </button>
       )}
     </div>

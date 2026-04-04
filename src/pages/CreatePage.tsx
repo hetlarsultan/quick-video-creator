@@ -5,6 +5,8 @@ import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/da
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
+import { generateVideoFromImage, blobToDataUrl } from '@/lib/video-generator';
+import { speakText } from '@/lib/tts';
 import { toast } from 'sonner';
 import ImagePicker from '@/components/ImagePicker';
 
@@ -76,6 +78,9 @@ function buildAIPrompt(type: ProjectType, prompt: string, style: string, charact
   return aiPrompt;
 }
 
+const isVideoType = (type: ProjectType) =>
+  ['text-to-video', 'image-to-video', 'scene-generator'].includes(type);
+
 export default function CreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -89,9 +94,11 @@ export default function CreatePage() {
   const [style, setStyle] = useState(styleOptions[0]);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState('');
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [character, setCharacter] = useState('none');
   const [scene, setScene] = useState('none');
+  const [enableNarration, setEnableNarration] = useState(true);
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -129,53 +136,100 @@ export default function CreatePage() {
     addProject(project);
     setProcessing(true);
     setProgress(0);
-
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) { clearInterval(interval); return 90; }
-        return prev + Math.random() * 8;
-      });
-    }, 500);
+    setStatusText('جاري إنتاج الصورة بالذكاء الاصطناعي...');
 
     try {
-      const aiPrompt = buildAIPrompt(type, prompt, style, character, scene);
-      const result = await generateImage(aiPrompt, style);
-      
-      clearInterval(interval);
-      setProgress(100);
+      // Step 1: Generate AI image
+      let imageUrl: string;
 
-      const outputFiles = type === 'text-to-audio' 
-        ? ['audio.wav'] 
-        : type === 'text-to-image' 
-          ? ['generated-image.png'] 
-          : ['1080p.mp4', 'storyboard.png'];
+      if (type === 'image-to-video' && sourceImage) {
+        // Use the uploaded image directly
+        imageUrl = sourceImage;
+        setProgress(20);
+      } else {
+        const aiPrompt = buildAIPrompt(type, prompt, style, character, scene);
+        const result = await generateImage(aiPrompt, style);
+        imageUrl = result.imageUrl;
+        setProgress(30);
+      }
 
-      updateProject(id, {
-        status: 'ready',
-        outputs: outputFiles,
-        generatedImageUrl: result.imageUrl,
-      });
+      // Step 2: For video types, generate animated video from image
+      if (isVideoType(type)) {
+        setStatusText('جاري إنتاج الفيديو المتحرك...');
 
-      const successMessages: Record<ProjectType, string> = {
-        'text-to-video': 'تم إنتاج مشهد الفيديو بنجاح! 🎬',
-        'image-to-video': 'تم تحويل الصورة بنجاح! 📸',
-        'text-to-image': 'تم إنتاج الصورة بنجاح! 🎨',
-        'scene-generator': 'تم إنتاج المشهد بنجاح! 🌍',
-        'text-to-audio': 'تم إنتاج الصوت بنجاح! 🎙️',
-      };
-      toast.success(successMessages[type]);
+        const videoBlob = await generateVideoFromImage({
+          imageUrl,
+          durationSec: Math.min(duration, 15), // Cap at 15s for performance
+          prompt,
+          type: 'ken-burns',
+          onProgress: (pct) => {
+            setProgress(30 + pct * 0.6); // 30% → 90%
+          },
+        });
+
+        const videoUrl = URL.createObjectURL(videoBlob);
+        setProgress(95);
+
+        // Step 3: Narrate with TTS if enabled
+        if (enableNarration && prompt.trim()) {
+          setStatusText('جاري إضافة الصوت...');
+          speakText(prompt);
+        }
+
+        setProgress(100);
+        setStatusText('تم الإنتاج بنجاح!');
+
+        updateProject(id, {
+          status: 'ready',
+          outputs: ['video.webm', 'storyboard.png'],
+          generatedImageUrl: imageUrl,
+          generatedVideoUrl: videoUrl,
+        });
+
+        toast.success('تم إنتاج الفيديو بنجاح! 🎬');
+      } else if (type === 'text-to-audio') {
+        // For audio, just speak the text
+        setStatusText('جاري إنتاج الصوت...');
+        setProgress(80);
+
+        speakText(prompt);
+
+        setProgress(100);
+        setStatusText('تم إنتاج الصوت بنجاح!');
+
+        updateProject(id, {
+          status: 'ready',
+          outputs: ['audio.wav'],
+          generatedImageUrl: imageUrl,
+        });
+
+        toast.success('تم إنتاج الصوت بنجاح! 🎙️');
+      } else {
+        // text-to-image
+        setProgress(100);
+        setStatusText('تم الإنتاج بنجاح!');
+
+        updateProject(id, {
+          status: 'ready',
+          outputs: ['generated-image.png'],
+          generatedImageUrl: imageUrl,
+        });
+
+        toast.success('تم إنتاج الصورة بنجاح! 🎨');
+      }
 
       setTimeout(() => {
         setProcessing(false);
         setPrompt('');
         setProgress(0);
+        setStatusText('');
         setSourceImage(null);
         navigate(`/project/${id}`);
-      }, 500);
+      }, 600);
     } catch (err: any) {
-      clearInterval(interval);
       setProcessing(false);
       setProgress(0);
+      setStatusText('');
       updateProject(id, { status: 'ready' });
       toast.error(err.message || 'حدث خطأ أثناء الإنتاج');
     }
@@ -249,6 +303,22 @@ export default function CreatePage() {
             ))}
           </div>
         </>
+      )}
+
+      {/* Narration toggle for video & audio types */}
+      {(isVideoType(type) || type === 'text-to-audio') && (
+        <div className="mt-4 flex items-center gap-3 rounded-xl bg-card border border-border p-3">
+          <button
+            onClick={() => setEnableNarration(!enableNarration)}
+            className={`w-10 h-6 rounded-full transition-all relative ${enableNarration ? 'bg-primary' : 'bg-muted'}`}
+          >
+            <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${enableNarration ? 'right-1' : 'left-1'}`} />
+          </button>
+          <div>
+            <span className="text-sm font-semibold text-foreground">🔊 إضافة صوت (رواية)</span>
+            <p className="text-xs text-muted-foreground">سيتم قراءة الوصف بصوت عربي</p>
+          </div>
+        </div>
       )}
 
       {/* Quick Templates */}
@@ -340,9 +410,9 @@ export default function CreatePage() {
           <>
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-              جاري الإنتاج... {Math.round(progress)}%
+              {statusText || `جاري الإنتاج... ${Math.round(progress)}%`}
             </div>
-            <div className="w-full h-1.5 rounded-full bg-primary-foreground/20 mt-1 overflow-hidden">
+            <div className="w-full max-w-xs h-1.5 rounded-full bg-primary-foreground/20 mt-1 overflow-hidden">
               <div className="h-full rounded-full bg-primary-foreground transition-all duration-300" style={{ width: `${progress}%` }} />
             </div>
           </>

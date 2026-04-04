@@ -17,6 +17,7 @@ export interface Project {
   style: string;
   outputs: string[];
   generatedImageUrl?: string;
+  generatedVideoUrl?: string;
   sourceImageUrl?: string;
 }
 
@@ -37,6 +38,7 @@ function compactProject(project: Project): Project {
   return {
     ...project,
     generatedImageUrl: trimStoredMedia(project.generatedImageUrl),
+    generatedVideoUrl: undefined, // Videos are too large for localStorage, store as object URLs
     sourceImageUrl: trimStoredMedia(project.sourceImageUrl),
     outputs: Array.isArray(project.outputs) ? project.outputs.slice(0, 12) : [],
   };

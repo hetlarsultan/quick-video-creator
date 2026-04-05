@@ -6,6 +6,7 @@ import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
 import { generateVideoFromImage, blobToDataUrl } from '@/lib/video-generator';
+import { generateTalkingVideo } from '@/lib/talking-video';
 import { speakText } from '@/lib/tts';
 import { toast } from 'sonner';
 import ImagePicker from '@/components/ImagePicker';
@@ -99,6 +100,7 @@ export default function CreatePage() {
   const [character, setCharacter] = useState('none');
   const [scene, setScene] = useState('none');
   const [enableNarration, setEnableNarration] = useState(true);
+  const [enableTalking, setEnableTalking] = useState(false);
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -157,15 +159,27 @@ export default function CreatePage() {
       if (isVideoType(type)) {
         setStatusText('جاري إنتاج الفيديو المتحرك...');
 
-        const videoBlob = await generateVideoFromImage({
-          imageUrl,
-          durationSec: Math.min(duration, 15), // Cap at 15s for performance
-          prompt,
-          type: 'ken-burns',
-          onProgress: (pct) => {
-            setProgress(30 + pct * 0.6); // 30% → 90%
-          },
-        });
+        let videoBlob: Blob;
+        const capDuration = Math.min(duration, 15);
+
+        if (enableTalking && character !== 'none') {
+          // Use talking-head animation
+          setStatusText('جاري إنتاج فيديو الشخصية المتكلمة...');
+          videoBlob = await generateTalkingVideo({
+            imageUrl: imageUrl,
+            durationSec: capDuration,
+            text: prompt,
+            onProgress: (pct) => setProgress(30 + pct * 0.6),
+          });
+        } else {
+          videoBlob = await generateVideoFromImage({
+            imageUrl,
+            durationSec: capDuration,
+            prompt,
+            type: 'ken-burns',
+            onProgress: (pct) => setProgress(30 + pct * 0.6),
+          });
+        }
 
         const videoUrl = URL.createObjectURL(videoBlob);
         setProgress(95);
@@ -307,17 +321,34 @@ export default function CreatePage() {
 
       {/* Narration toggle for video & audio types */}
       {(isVideoType(type) || type === 'text-to-audio') && (
-        <div className="mt-4 flex items-center gap-3 rounded-xl bg-card border border-border p-3">
-          <button
-            onClick={() => setEnableNarration(!enableNarration)}
-            className={`w-10 h-6 rounded-full transition-all relative ${enableNarration ? 'bg-primary' : 'bg-muted'}`}
-          >
-            <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${enableNarration ? 'right-1' : 'left-1'}`} />
-          </button>
-          <div>
-            <span className="text-sm font-semibold text-foreground">🔊 إضافة صوت (رواية)</span>
-            <p className="text-xs text-muted-foreground">سيتم قراءة الوصف بصوت عربي</p>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-3 rounded-xl bg-card border border-border p-3">
+            <button
+              onClick={() => setEnableNarration(!enableNarration)}
+              className={`w-10 h-6 rounded-full transition-all relative ${enableNarration ? 'bg-primary' : 'bg-muted'}`}
+            >
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${enableNarration ? 'right-1' : 'left-1'}`} />
+            </button>
+            <div>
+              <span className="text-sm font-semibold text-foreground">🔊 إضافة صوت (رواية)</span>
+              <p className="text-xs text-muted-foreground">سيتم قراءة الوصف بصوت عربي</p>
+            </div>
           </div>
+
+          {isVideoType(type) && character !== 'none' && (
+            <div className="flex items-center gap-3 rounded-xl bg-card border border-border p-3">
+              <button
+                onClick={() => setEnableTalking(!enableTalking)}
+                className={`w-10 h-6 rounded-full transition-all relative ${enableTalking ? 'bg-primary' : 'bg-muted'}`}
+              >
+                <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${enableTalking ? 'right-1' : 'left-1'}`} />
+              </button>
+              <div>
+                <span className="text-sm font-semibold text-foreground">🗣️ شخصية متكلمة</span>
+                <p className="text-xs text-muted-foreground">ستتحرك الشخصية وكأنها تتكلم</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

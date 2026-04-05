@@ -5,8 +5,7 @@ import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/da
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
-import { generateVideoFromImage, blobToDataUrl } from '@/lib/video-generator';
-import { generateTalkingVideo } from '@/lib/talking-video';
+import { generateAnimatedVideo } from '@/lib/animated-video';
 import { speakText } from '@/lib/tts';
 import { toast } from 'sonner';
 import ImagePicker from '@/components/ImagePicker';
@@ -34,33 +33,50 @@ const sceneOptions = [
   { label: 'تحت الماء', value: 'underwater', emoji: '🌊' },
 ];
 
-function buildAIPrompt(type: ProjectType, prompt: string, style: string, character: string, scene: string): string {
-  let aiPrompt = '';
+/** Build progressive scene prompts for animated video (different moments/poses) */
+function buildScenePrompts(
+  type: ProjectType,
+  prompt: string,
+  style: string,
+  character: string,
+  scene: string,
+  count: number
+): string[] {
+  const charDesc: Record<string, string> = {
+    realistic: 'a realistic human character',
+    cartoon: 'a cute cartoon character in anime style',
+    fantasy: 'a magical fantasy character with glowing effects',
+  };
 
-  switch (type) {
-    case 'text-to-video':
-      aiPrompt = `Create a cinematic movie scene storyboard frame: ${prompt}`;
-      break;
-    case 'image-to-video':
-      aiPrompt = `Create an animated version of this scene with motion effects: ${prompt}`;
-      break;
-    case 'text-to-image':
-      aiPrompt = `Create a high quality image: ${prompt}`;
-      break;
-    case 'scene-generator':
-      aiPrompt = `Create a detailed panoramic scene with animated elements and dynamic lighting: ${prompt}`;
-      break;
-    case 'text-to-audio':
-      aiPrompt = `Create a visual audio waveform artwork representing this sound: ${prompt}`;
-      break;
-    default:
-      aiPrompt = `Create an image: ${prompt}`;
-  }
+  const sceneDesc: Record<string, string> = {
+    'animated-nature': 'lush green nature with flowers, trees, flowing wind',
+    'night-city': 'neon-lit futuristic city at night, glowing signs',
+    'space': 'deep space with stars, nebulas, planets',
+    'underwater': 'underwater ocean with coral, fish, light rays',
+  };
+
+  const charText = character !== 'none' ? `, featuring ${charDesc[character]}` : '';
+  const sceneText = scene !== 'none' ? `, set in ${sceneDesc[scene]}` : '';
+
+  // Create different moments/actions for each scene frame
+  const moments = [
+    `Opening shot, establishing the scene: ${prompt}${charText}${sceneText}. Wide angle, dramatic lighting. Style: ${style}`,
+    `Action moment, mid-scene: ${prompt}${charText}${sceneText}. Dynamic pose, movement blur effect. Close-up angle. Style: ${style}`,
+    `Dramatic close-up with emotion: ${prompt}${charText}${sceneText}. Detailed facial expression, cinematic depth of field. Style: ${style}`,
+    `Climax scene with peak action: ${prompt}${charText}${sceneText}. Dynamic composition, energy effects, dramatic angle. Style: ${style}`,
+    `Final scene, resolution: ${prompt}${charText}${sceneText}. Warm lighting, peaceful mood, golden hour. Style: ${style}`,
+  ];
+
+  return moments.slice(0, count);
+}
+
+function buildSinglePrompt(type: ProjectType, prompt: string, style: string, character: string, scene: string): string {
+  let aiPrompt = `Create a high quality image: ${prompt}`;
 
   if (character !== 'none') {
     const charMap: Record<string, string> = {
       realistic: 'Include a realistic human character',
-      cartoon: 'Include a cute cartoon character',
+      cartoon: 'Include a cute cartoon character in anime style',
       fantasy: 'Include a magical fantasy character with special effects',
     };
     aiPrompt += `. ${charMap[character]}`;
@@ -138,95 +154,115 @@ export default function CreatePage() {
     addProject(project);
     setProcessing(true);
     setProgress(0);
-    setStatusText('جاري إنتاج الصورة بالذكاء الاصطناعي...');
 
     try {
-      // Step 1: Generate AI image
-      let imageUrl: string;
-
-      if (type === 'image-to-video' && sourceImage) {
-        // Use the uploaded image directly
-        imageUrl = sourceImage;
-        setProgress(20);
-      } else {
-        const aiPrompt = buildAIPrompt(type, prompt, style, character, scene);
-        const result = await generateImage(aiPrompt, style);
-        imageUrl = result.imageUrl;
-        setProgress(30);
-      }
-
-      // Step 2: For video types, generate animated video from image
       if (isVideoType(type)) {
-        setStatusText('جاري إنتاج الفيديو المتحرك...');
-
-        let videoBlob: Blob;
+        // --- ANIMATED VIDEO: Generate multiple scene images ---
+        const sceneCount = type === 'scene-generator' ? 4 : 3;
         const capDuration = Math.min(duration, 15);
+        let sceneImageUrls: string[] = [];
 
-        if (enableTalking && character !== 'none') {
-          // Use talking-head animation
-          setStatusText('جاري إنتاج فيديو الشخصية المتكلمة...');
-          videoBlob = await generateTalkingVideo({
-            imageUrl: imageUrl,
-            durationSec: capDuration,
-            text: prompt,
-            onProgress: (pct) => setProgress(30 + pct * 0.6),
-          });
+        if (type === 'image-to-video' && sourceImage) {
+          // For image-to-video, generate 2 more AI scene variations + original
+          setStatusText('جاري إنتاج مشاهد متحركة من الصورة...');
+          sceneImageUrls.push(sourceImage);
+
+          const extraPrompts = buildScenePrompts(type, prompt, style, character, scene, 2);
+          for (let i = 0; i < extraPrompts.length; i++) {
+            setStatusText(`جاري إنتاج المشهد ${i + 2} من ${sceneCount}...`);
+            try {
+              const result = await generateImage(extraPrompts[i], style);
+              sceneImageUrls.push(result.imageUrl);
+            } catch {
+              // If extra scene fails, continue with what we have
+              console.warn(`Scene ${i + 2} generation failed, skipping`);
+            }
+            setProgress(((i + 1) / sceneCount) * 25);
+          }
         } else {
-          videoBlob = await generateVideoFromImage({
-            imageUrl,
-            durationSec: capDuration,
-            prompt,
-            type: 'ken-burns',
-            onProgress: (pct) => setProgress(30 + pct * 0.6),
-          });
+          // Generate multiple scene frames
+          const scenePrompts = buildScenePrompts(type, prompt, style, character, scene, sceneCount);
+
+          for (let i = 0; i < scenePrompts.length; i++) {
+            setStatusText(`جاري إنتاج المشهد ${i + 1} من ${scenePrompts.length}...`);
+            try {
+              const result = await generateImage(scenePrompts[i], style);
+              sceneImageUrls.push(result.imageUrl);
+            } catch (err) {
+              console.warn(`Scene ${i + 1} failed:`, err);
+              // If first scene fails, throw. Otherwise continue with what we have.
+              if (sceneImageUrls.length === 0 && i === scenePrompts.length - 1) {
+                throw new Error('فشل إنتاج جميع المشاهد. جرّب وصفاً أبسط.');
+              }
+            }
+            setProgress(((i + 1) / scenePrompts.length) * 30);
+          }
         }
+
+        if (sceneImageUrls.length === 0) {
+          throw new Error('فشل إنتاج المشاهد. جرّب وصفاً مختلفاً.');
+        }
+
+        // --- Generate animated video from scene images ---
+        setStatusText('جاري إنتاج الفيديو المتحرك...');
+        setProgress(35);
+
+        const videoBlob = await generateAnimatedVideo({
+          sceneImages: sceneImageUrls,
+          durationSec: capDuration,
+          prompt,
+          enableTalking: enableTalking && character !== 'none',
+          onProgress: (pct) => setProgress(35 + pct * 0.55),
+        });
 
         const videoUrl = URL.createObjectURL(videoBlob);
         setProgress(95);
 
-        // Step 3: Narrate with TTS if enabled
         if (enableNarration && prompt.trim()) {
           setStatusText('جاري إضافة الصوت...');
           speakText(prompt);
         }
 
         setProgress(100);
-        setStatusText('تم الإنتاج بنجاح!');
+        setStatusText('تم الإنتاج بنجاح! 🎬');
 
         updateProject(id, {
           status: 'ready',
-          outputs: ['video.webm', 'storyboard.png'],
-          generatedImageUrl: imageUrl,
+          outputs: ['video.webm', ...sceneImageUrls.map((_, i) => `scene-${i + 1}.png`)],
+          generatedImageUrl: sceneImageUrls[0],
           generatedVideoUrl: videoUrl,
         });
 
-        toast.success('تم إنتاج الفيديو بنجاح! 🎬');
+        toast.success(`تم إنتاج فيديو بـ ${sceneImageUrls.length} مشاهد! 🎬`);
       } else if (type === 'text-to-audio') {
-        // For audio, just speak the text
         setStatusText('جاري إنتاج الصوت...');
-        setProgress(80);
+        const aiPrompt = buildSinglePrompt(type, prompt, style, character, scene);
+        const result = await generateImage(aiPrompt, style);
+        setProgress(50);
 
         speakText(prompt);
-
         setProgress(100);
         setStatusText('تم إنتاج الصوت بنجاح!');
 
         updateProject(id, {
           status: 'ready',
           outputs: ['audio.wav'],
-          generatedImageUrl: imageUrl,
+          generatedImageUrl: result.imageUrl,
         });
 
         toast.success('تم إنتاج الصوت بنجاح! 🎙️');
       } else {
         // text-to-image
+        setStatusText('جاري إنتاج الصورة بالذكاء الاصطناعي...');
+        const aiPrompt = buildSinglePrompt(type, prompt, style, character, scene);
+        const result = await generateImage(aiPrompt, style);
         setProgress(100);
         setStatusText('تم الإنتاج بنجاح!');
 
         updateProject(id, {
           status: 'ready',
           outputs: ['generated-image.png'],
-          generatedImageUrl: imageUrl,
+          generatedImageUrl: result.imageUrl,
         });
 
         toast.success('تم إنتاج الصورة بنجاح! 🎨');
@@ -319,7 +355,7 @@ export default function CreatePage() {
         </>
       )}
 
-      {/* Narration toggle for video & audio types */}
+      {/* Narration & Talking toggles */}
       {(isVideoType(type) || type === 'text-to-audio') && (
         <div className="mt-4 space-y-2">
           <div className="flex items-center gap-3 rounded-xl bg-card border border-border p-3">
@@ -345,8 +381,16 @@ export default function CreatePage() {
               </button>
               <div>
                 <span className="text-sm font-semibold text-foreground">🗣️ شخصية متكلمة</span>
-                <p className="text-xs text-muted-foreground">ستتحرك الشخصية وكأنها تتكلم</p>
+                <p className="text-xs text-muted-foreground">ستتحرك الشخصية وكأنها تتكلم في الفيديو</p>
               </div>
+            </div>
+          )}
+
+          {isVideoType(type) && (
+            <div className="rounded-xl bg-accent/50 border border-border p-3">
+              <p className="text-xs text-muted-foreground">
+                🎬 سيتم إنتاج <strong className="text-foreground">{type === 'scene-generator' ? '4' : '3'} مشاهد مختلفة</strong> بالذكاء الاصطناعي ودمجها في فيديو متحرك بتأثيرات سينمائية
+              </p>
             </div>
           )}
         </div>

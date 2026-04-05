@@ -100,6 +100,7 @@ export default function CreatePage() {
   const [character, setCharacter] = useState('none');
   const [scene, setScene] = useState('none');
   const [enableNarration, setEnableNarration] = useState(true);
+  const [enableTalking, setEnableTalking] = useState(false);
 
   useEffect(() => {
     if (preset) setType(preset);

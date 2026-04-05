@@ -6,6 +6,7 @@ import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
 import { generateVideoFromImage, blobToDataUrl } from '@/lib/video-generator';
+import { generateTalkingVideo } from '@/lib/talking-video';
 import { speakText } from '@/lib/tts';
 import { toast } from 'sonner';
 import ImagePicker from '@/components/ImagePicker';

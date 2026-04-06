@@ -511,11 +511,11 @@ export default function CreatePage() {
           <div className="flex gap-2">
             {durationOptions.map(d => (
               <button
-                key={d.value}
-                onClick={() => setDuration(d.value)}
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition-all ${d.value === duration ? 'gradient-primary text-primary-foreground' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+                key={d}
+                onClick={() => setDuration(d)}
+                className={`rounded-full px-4 py-2 text-xs font-semibold transition-all ${d === duration ? 'gradient-primary text-primary-foreground' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
               >
-                {d.label}
+                {d}ث
               </button>
             ))}
           </div>

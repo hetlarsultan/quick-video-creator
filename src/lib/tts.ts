@@ -1,6 +1,6 @@
 /**
  * Text-to-Speech using Web Speech API.
- * Supports Arabic narration for video overlay.
+ * Supports Arabic narration and audio blob generation for video merging.
  */
 
 export function isTTSSupported(): boolean {
@@ -14,8 +14,6 @@ export function getArabicVoices(): SpeechSynthesisVoice[] {
 
 export function speakText(text: string, onEnd?: () => void): SpeechSynthesisUtterance | null {
   if (!isTTSSupported()) return null;
-
-  // Cancel any current speech
   speechSynthesis.cancel();
 
   const utterance = new SpeechSynthesisUtterance(text);
@@ -23,35 +21,51 @@ export function speakText(text: string, onEnd?: () => void): SpeechSynthesisUtte
   utterance.rate = 0.9;
   utterance.pitch = 1;
 
-  // Pick Arabic voice if available
   const arabicVoices = getArabicVoices();
   if (arabicVoices.length > 0) {
     utterance.voice = arabicVoices[0];
   }
 
   if (onEnd) utterance.onend = onEnd;
-
   speechSynthesis.speak(utterance);
   return utterance;
 }
 
 /**
- * Generate speech audio as a Blob via AudioContext + MediaRecorder.
- * Falls back to just playing via speechSynthesis if audio capture isn't supported.
+ * Generate speech audio as a Blob for merging into video.
+ * Uses MediaRecorder to capture system audio output.
  */
 export async function generateSpeechBlob(text: string): Promise<Blob | null> {
   if (!isTTSSupported()) return null;
 
+  // Ensure voices are loaded
+  await new Promise<void>((resolve) => {
+    if (speechSynthesis.getVoices().length > 0) {
+      resolve();
+    } else {
+      speechSynthesis.onvoiceschanged = () => resolve();
+      setTimeout(resolve, 2000);
+    }
+  });
+
   return new Promise<Blob | null>((resolve) => {
-    // Try using AudioContext + destination capture
     try {
       const audioCtx = new AudioContext();
       const dest = audioCtx.createMediaStreamDestination();
-      const recorder = new MediaRecorder(dest.stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      });
+      
+      // Create an oscillator as a carrier signal (silent) to keep recorder active
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0; // silent
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.start();
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+
+      const recorder = new MediaRecorder(dest.stream, { mimeType });
 
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
@@ -59,6 +73,7 @@ export async function generateSpeechBlob(text: string): Promise<Blob | null> {
       };
 
       recorder.onstop = () => {
+        osc.stop();
         audioCtx.close();
         if (chunks.length > 0) {
           resolve(new Blob(chunks, { type: 'audio/webm' }));
@@ -78,7 +93,7 @@ export async function generateSpeechBlob(text: string): Promise<Blob | null> {
 
       recorder.start();
       utterance.onend = () => {
-        setTimeout(() => recorder.stop(), 200);
+        setTimeout(() => recorder.stop(), 300);
       };
       utterance.onerror = () => {
         recorder.stop();

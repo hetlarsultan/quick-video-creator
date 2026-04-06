@@ -1,25 +1,24 @@
 /**
- * Animated Video Engine — creates real animated videos, not just zoom/pan.
+ * Animated Video Engine — multi-scene cinematic video with audio merging.
  *
- * Strategy: Generate multiple AI scene images (different moments/poses),
- * then create smooth crossfade + motion transitions between them.
- * Adds parallax layers, particle effects, and character motion.
+ * Generates smooth crossfade transitions between AI scene images,
+ * with parallax, particles, talking character effects, and
+ * TTS audio merged directly into the video file.
  */
 
 export interface AnimatedVideoOptions {
-  /** Array of scene image URLs (2-6 images showing progressive moments) */
   sceneImages: string[];
   durationSec: number;
   prompt: string;
   width?: number;
   height?: number;
   enableTalking?: boolean;
+  audioBlob?: Blob | null;
   onProgress?: (pct: number) => void;
 }
 
 interface LoadedScene {
   img: HTMLImageElement;
-  /** Per-scene motion parameters */
   motionX: number;
   motionY: number;
   rotation: number;
@@ -40,7 +39,6 @@ function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-/** Draw an image covering the canvas with optional transform */
 function drawCover(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -73,7 +71,6 @@ function drawCover(
   ctx.globalAlpha = 1;
 }
 
-/** Simple particle for ambient effects */
 interface Particle {
   x: number; y: number;
   vx: number; vy: number;
@@ -103,12 +100,9 @@ function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[], w: 
     p.x += p.vx;
     p.y += p.vy;
     p.alpha *= 0.998;
-
-    // Wrap around
     if (p.y < -10) { p.y = h + 10; p.alpha = Math.random() * 0.6 + 0.2; }
     if (p.x < -10) p.x = w + 10;
     if (p.x > w + 10) p.x = -10;
-
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
     ctx.fillStyle = `${p.color}${p.alpha})`;
@@ -117,7 +111,7 @@ function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[], w: 
 }
 
 /**
- * Generate a real animated video with multiple scene transitions.
+ * Generate animated video with optional audio merged in.
  */
 export async function generateAnimatedVideo(options: AnimatedVideoOptions): Promise<Blob> {
   const {
@@ -127,15 +121,14 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
     width = 1080,
     height = 1080,
     enableTalking = false,
+    audioBlob,
     onProgress,
   } = options;
 
   if (sceneImages.length === 0) throw new Error('No scene images provided');
 
-  // Load all scene images
   const images = await Promise.all(sceneImages.map(loadImage));
 
-  // Assign per-scene motion parameters
   const scenes: LoadedScene[] = images.map((img, i) => ({
     img,
     motionX: (Math.random() - 0.5) * 40,
@@ -152,14 +145,43 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
   const fps = 30;
   const totalFrames = durationSec * fps;
   const framesPerScene = totalFrames / scenes.length;
-  const transitionFrames = Math.min(Math.floor(framesPerScene * 0.35), fps * 2); // 35% overlap or 2s max
+  const transitionFrames = Math.min(Math.floor(framesPerScene * 0.35), fps * 2);
 
-  const stream = canvas.captureStream(fps);
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+  // --- Merge video + audio streams ---
+  const videoStream = canvas.captureStream(fps);
+  let combinedStream: MediaStream;
+
+  if (audioBlob) {
+    try {
+      const audioCtx = new AudioContext();
+      const arrayBuf = await audioBlob.arrayBuffer();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      const dest = audioCtx.createMediaStreamDestination();
+      source.connect(dest);
+      source.start();
+
+      // Combine video tracks + audio tracks
+      combinedStream = new MediaStream([
+        ...videoStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+    } catch (e) {
+      console.warn('Audio merge failed, continuing without audio:', e);
+      combinedStream = videoStream;
+    }
+  } else {
+    combinedStream = videoStream;
+  }
+
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+    ? 'video/webm;codecs=vp9,opus'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
     ? 'video/webm;codecs=vp9'
     : 'video/webm';
 
-  const recorder = new MediaRecorder(stream, {
+  const recorder = new MediaRecorder(combinedStream, {
     mimeType,
     videoBitsPerSecond: 5_000_000,
   });
@@ -169,10 +191,7 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
     if (e.data.size > 0) chunks.push(e.data);
   };
 
-  // Create ambient particles
   const particles = createParticles(40, width, height);
-
-  // Speech energy for talking mode
   const wordCount = prompt.split(/\s+/).length;
   const syllablesPerSec = Math.max(2, (wordCount / durationSec) * 2.5);
 
@@ -191,10 +210,7 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         return;
       }
 
-      const t = frame / totalFrames;
       const timeSec = frame / fps;
-
-      // Determine current scene index and local progress
       const sceneIdx = Math.min(Math.floor(frame / framesPerScene), scenes.length - 1);
       const localFrame = frame - sceneIdx * framesPerScene;
       const localT = localFrame / framesPerScene;
@@ -202,16 +218,13 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
       const scene = scenes[sceneIdx];
       const nextScene = scenes[Math.min(sceneIdx + 1, scenes.length - 1)];
 
-      // --- Clear ---
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, width, height);
 
-      // --- Scene motion ---
       const sceneScale = 1.12 + scene.zoomDir * localT * 0.08;
       const ox = Math.sin(timeSec * 0.7 + sceneIdx) * scene.motionX * localT;
       const oy = Math.cos(timeSec * 0.5 + sceneIdx) * scene.motionY * localT;
 
-      // Talking character motion
       let talkOx = 0, talkOy = 0, talkScale = 1;
       if (enableTalking) {
         const speechFreq = syllablesPerSec * 2 * Math.PI;
@@ -222,14 +235,12 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         talkScale = 1 + energy * 0.015;
       }
 
-      // Check if we're in transition zone
       const isTransitioning = localFrame > (framesPerScene - transitionFrames) && sceneIdx < scenes.length - 1;
 
       if (isTransitioning) {
         const transProgress = (localFrame - (framesPerScene - transitionFrames)) / transitionFrames;
         const eased = easeInOutCubic(transProgress);
 
-        // Draw current scene fading out
         ctx.save();
         ctx.translate(width / 2 + talkOx, height / 2 + talkOy);
         ctx.scale(talkScale, talkScale);
@@ -237,7 +248,6 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         drawCover(ctx, scene.img, width, height, ox, oy, sceneScale, 1 - eased);
         ctx.restore();
 
-        // Draw next scene fading in with its own motion
         const nextScale = 1.12 + nextScene.zoomDir * transProgress * 0.04;
         const nox = Math.sin(timeSec * 0.5) * nextScene.motionX * 0.2;
         const noy = Math.cos(timeSec * 0.3) * nextScene.motionY * 0.2;
@@ -249,7 +259,6 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         drawCover(ctx, nextScene.img, width, height, nox, noy, nextScale, eased);
         ctx.restore();
       } else {
-        // Normal scene rendering
         ctx.save();
         ctx.translate(width / 2 + talkOx, height / 2 + talkOy);
         ctx.scale(talkScale, talkScale);
@@ -258,10 +267,9 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         ctx.restore();
       }
 
-      // --- Ambient particles ---
       drawParticles(ctx, particles, width, height);
 
-      // --- Cinematic vignette ---
+      // Vignette
       const vig = ctx.createRadialGradient(
         width / 2, height / 2, width * 0.28,
         width / 2, height / 2, width * 0.72
@@ -271,7 +279,7 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, width, height);
 
-      // --- Talking mouth glow ---
+      // Talking glow
       if (enableTalking) {
         const speechFreq = syllablesPerSec * 2 * Math.PI;
         const envelope = Math.sin(timeSec * 0.6 * Math.PI) ** 2;
@@ -288,7 +296,7 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         }
       }
 
-      // --- Film grain overlay (very subtle) ---
+      // Film grain
       if (frame % 2 === 0) {
         ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.03})`;
         ctx.fillRect(0, 0, width, height);

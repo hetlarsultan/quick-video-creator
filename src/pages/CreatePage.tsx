@@ -61,10 +61,18 @@ function buildSinglePrompt(type: ProjectType, prompt: string, style: string, cha
 const isVideoType = (type: ProjectType) =>
   ['text-to-video', 'image-to-video', 'scene-generator'].includes(type);
 
+interface AISceneData {
+  description: string;
+  action?: string;
+  camera?: string;
+  intensity?: number;
+  characterDirection?: string;
+}
+
 interface AIAnalysis {
   character: string;
   environment: string;
-  scenes: string[];
+  scenes: AISceneData[];
   narrationText: string;
 }
 

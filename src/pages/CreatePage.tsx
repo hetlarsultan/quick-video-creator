@@ -5,7 +5,7 @@ import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/da
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
 import { generateImage } from '@/lib/ai';
-import { generateAnimatedVideo } from '@/lib/animated-video';
+import { generateAnimatedVideo, SceneMotion } from '@/lib/animated-video';
 import { speakText, generateSpeechBlob } from '@/lib/tts';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';

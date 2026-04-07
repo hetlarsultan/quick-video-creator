@@ -206,18 +206,32 @@ export default function CreatePage() {
         let sceneImageUrls: string[] = [];
 
         // Use AI-generated scene prompts if available
-        const scenePrompts = analysis?.scenes?.length
-          ? analysis.scenes.slice(0, sceneCount)
+        const sceneDescriptions: string[] = analysis?.scenes?.length
+          ? analysis.scenes.slice(0, sceneCount).map(s => typeof s === 'string' ? s : s.description)
           : buildDefaultScenePrompts(prompt, style, effectiveChar, effectiveScene, sceneCount);
+
+        // Extract motion data from AI scenes
+        const sceneMotions: SceneMotion[] = (analysis?.scenes || []).slice(0, sceneCount).map((s, i) => {
+          if (typeof s === 'string') {
+            return { action: 'idle' as const, camera: 'static' as const, intensity: 0.5, characterDirection: 'center' as const, description: s };
+          }
+          return {
+            action: (s.action || 'idle') as any,
+            camera: (s.camera || 'static') as any,
+            intensity: s.intensity ?? 0.5,
+            characterDirection: (s.characterDirection || 'center') as any,
+            description: s.description,
+          };
+        });
 
         if (type === 'image-to-video' && sourceImage) {
           setStatusText('🎨 جاري إنتاج مشاهد متحركة من الصورة...');
           sceneImageUrls.push(sourceImage);
 
-          for (let i = 0; i < Math.min(2, scenePrompts.length); i++) {
+          for (let i = 0; i < Math.min(2, sceneDescriptions.length); i++) {
             setStatusText(`🎬 إنتاج المشهد ${i + 2}...`);
             try {
-              const result = await generateImage(scenePrompts[i], style);
+              const result = await generateImage(sceneDescriptions[i], style);
               sceneImageUrls.push(result.imageUrl);
             } catch {
               console.warn(`Scene ${i + 2} failed, skipping`);
@@ -225,18 +239,18 @@ export default function CreatePage() {
             setProgress(15 + ((i + 1) / sceneCount) * 20);
           }
         } else {
-          for (let i = 0; i < scenePrompts.length; i++) {
-            setStatusText(`🎬 إنتاج المشهد ${i + 1} من ${scenePrompts.length}...`);
+          for (let i = 0; i < sceneDescriptions.length; i++) {
+            setStatusText(`🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
             try {
-              const result = await generateImage(scenePrompts[i], style);
+              const result = await generateImage(sceneDescriptions[i], style);
               sceneImageUrls.push(result.imageUrl);
             } catch (err) {
               console.warn(`Scene ${i + 1} failed:`, err);
-              if (sceneImageUrls.length === 0 && i === scenePrompts.length - 1) {
+              if (sceneImageUrls.length === 0 && i === sceneDescriptions.length - 1) {
                 throw new Error('فشل إنتاج جميع المشاهد. جرّب وصفاً أبسط.');
               }
             }
-            setProgress(15 + ((i + 1) / scenePrompts.length) * 25);
+            setProgress(15 + ((i + 1) / sceneDescriptions.length) * 25);
           }
         }
 
@@ -253,8 +267,8 @@ export default function CreatePage() {
           setProgress(50);
         }
 
-        // Step 4: Generate animated video with audio
-        setStatusText('🎬 جاري إنتاج الفيديو المتحرك مع الصوت...');
+        // Step 4: Generate animated video with motion + audio
+        setStatusText('🎬 جاري إنتاج الفيديو المتحرك مع الحركة والصوت...');
 
         const videoBlob = await generateAnimatedVideo({
           sceneImages: sceneImageUrls,
@@ -262,6 +276,7 @@ export default function CreatePage() {
           prompt,
           enableTalking: enableTalking && effectiveChar !== 'none',
           audioBlob,
+          sceneMotions: sceneMotions.length > 0 ? sceneMotions : undefined,
           onProgress: (pct) => setProgress(55 + pct * 0.4),
         });
 

@@ -29,24 +29,26 @@ serve(async (req) => {
       );
     }
 
-    const systemPrompt = `You are a creative AI director for video production. Given a user's video description, analyze it and return a JSON object with:
+    const systemPrompt = `You are a creative AI director for animated video production. Given a user's video description, analyze it and return a JSON object with:
 
 1. "character": The best character type. One of: "realistic", "cartoon", "fantasy", "none"
-   - Use "realistic" for real-world scenarios, people, animals
-   - Use "cartoon" for fun, kids, cute, or animated content  
-   - Use "fantasy" for magical, sci-fi, mythical content
-   - Use "none" for landscapes, abstract, or no-character scenes
 
 2. "environment": The best background/environment. One of: "animated-nature", "night-city", "space", "underwater", "desert", "forest", "indoor", "school", "park"
 
-3. "scenes": An array of ${sceneCount || 4} scene descriptions for image generation. Each scene should:
-   - Show a DIFFERENT moment/action/angle progressing the story
-   - Include the character description matching the chosen type
-   - Include the environment/background details
-   - Be detailed enough for AI image generation
-   - Progress like a real film: establishing shot → action → climax → resolution
+3. "scenes": An array of ${sceneCount || 4} scene objects. Each scene object has:
+   - "description": Detailed image generation prompt for this scene moment
+   - "action": The character action type. One of: "idle", "talking", "walking", "running", "fighting", "chasing", "emotional", "dramatic"
+   - "camera": Camera movement. One of: "static", "pan-left", "pan-right", "zoom-in", "zoom-out", "shake", "dolly", "tilt-up", "tilt-down"
+   - "intensity": Action intensity from 0.0 to 1.0 (0.3=calm, 0.7=energetic, 1.0=extreme)
+   - "characterDirection": Which way the character faces/moves. One of: "left", "right", "center"
 
-4. "narrationText": A short Arabic narration script (2-3 sentences) that tells the story of the video, suitable for text-to-speech.
+   Rules for scenes:
+   - Progress like a real film: establishing → action → climax → resolution
+   - Match action to what's happening (running=running, fight=fighting, dialog=talking)
+   - Use camera shake for impacts, zoom-in for drama, pan for movement
+   - Vary intensity: start moderate, peak at climax, resolve
+
+4. "narrationText": A short Arabic narration script (2-3 sentences) telling the story.
 
 Return ONLY valid JSON, no markdown.`;
 
@@ -89,25 +91,48 @@ Return ONLY valid JSON, no markdown.`;
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
 
-    // Parse JSON from response (handle markdown code blocks)
     let parsed;
     try {
       const jsonStr = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       parsed = JSON.parse(jsonStr);
     } catch {
       console.error("Failed to parse AI response:", content);
-      // Return sensible defaults
       parsed = {
         character: "cartoon",
         environment: "animated-nature",
         scenes: [
-          `Opening shot: ${prompt}, wide angle, dramatic lighting`,
-          `Action scene: ${prompt}, dynamic movement, close angle`,
-          `Dramatic moment: ${prompt}, detailed close-up, cinematic`,
-          `Final scene: ${prompt}, warm resolution, golden hour`,
+          { description: `Opening shot: ${prompt}, wide angle, dramatic lighting`, action: "idle", camera: "zoom-in", intensity: 0.4, characterDirection: "center" },
+          { description: `Action scene: ${prompt}, dynamic movement`, action: "walking", camera: "pan-right", intensity: 0.6, characterDirection: "right" },
+          { description: `Dramatic moment: ${prompt}, close-up, cinematic`, action: "dramatic", camera: "dolly", intensity: 0.8, characterDirection: "center" },
+          { description: `Final scene: ${prompt}, warm resolution`, action: "idle", camera: "zoom-out", intensity: 0.3, characterDirection: "center" },
         ],
         narrationText: prompt,
       };
+    }
+
+    // Normalize scenes to ensure they have motion data
+    if (parsed.scenes && Array.isArray(parsed.scenes)) {
+      parsed.scenes = parsed.scenes.map((s: any, i: number) => {
+        if (typeof s === 'string') {
+          // Old format: just a string description
+          const actions = ['idle', 'talking', 'dramatic', 'idle'];
+          const cameras = ['zoom-in', 'pan-right', 'dolly', 'zoom-out'];
+          return {
+            description: s,
+            action: actions[i % actions.length],
+            camera: cameras[i % cameras.length],
+            intensity: 0.3 + (i / parsed.scenes.length) * 0.5,
+            characterDirection: 'center',
+          };
+        }
+        return {
+          description: s.description || s,
+          action: s.action || 'idle',
+          camera: s.camera || 'static',
+          intensity: s.intensity ?? 0.5,
+          characterDirection: s.characterDirection || 'center',
+        };
+      });
     }
 
     return new Response(

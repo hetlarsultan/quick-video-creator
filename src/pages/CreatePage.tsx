@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User, Wand2 } from 'lucide-react';
+import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User, Wand2, WifiOff, Wifi } from 'lucide-react';
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
@@ -10,6 +10,11 @@ import { speakText, generateSpeechBlob } from '@/lib/tts';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import ImagePicker from '@/components/ImagePicker';
+
+// Offline modules
+import { analyzePromptOffline, OfflineAnalysis } from '@/lib/offline/prompt-analyzer';
+import { generateOfflineSceneImages } from '@/lib/offline/image-generator';
+import { generateCharacterAudioBlob, CharacterVoice, getVoiceOptions, VoiceGender } from '@/lib/offline/voice-engine';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
   { label: 'نص ➜ فيديو', value: 'text-to-video', icon: Video, emoji: '🎬' },
@@ -97,6 +102,23 @@ export default function CreatePage() {
   const [enableTalking, setEnableTalking] = useState(true);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [forceOffline, setForceOffline] = useState(false);
+  const [narratorVoice, setNarratorVoice] = useState<VoiceGender>('male');
+
+  // Listen to online/offline status
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  const effectiveOffline = forceOffline || !isOnline;
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -115,22 +137,40 @@ export default function CreatePage() {
     }
     setAnalyzing(true);
     try {
-      const sceneCount = type === 'scene-generator' ? 4 : 3;
-      const { data, error } = await supabase.functions.invoke('analyze-prompt', {
-        body: { prompt, type, sceneCount },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      setAiAnalysis(data);
-      // Auto-apply AI suggestions
-      if (character === 'auto' && data.character) {
-        // Show what AI chose (keep selection on 'auto' so user sees it's AI-driven)
+      if (effectiveOffline) {
+        // Offline analysis
+        const sceneCount = type === 'scene-generator' ? 4 : 3;
+        const offlineResult = analyzePromptOffline(prompt, sceneCount);
+        const analysis: AIAnalysis = {
+          character: offlineResult.character,
+          environment: offlineResult.environment,
+          scenes: offlineResult.scenes,
+          narrationText: offlineResult.narrationText,
+        };
+        setAiAnalysis(analysis);
+        toast.success(`✨ تحليل محلي! شخصية: ${getCharLabel(offlineResult.character)} | بيئة: ${getSceneLabel(offlineResult.environment)} | شخصيات: ${offlineResult.characters.map(c => c.name).join('، ')}`);
+      } else {
+        const sceneCount = type === 'scene-generator' ? 4 : 3;
+        const { data, error } = await supabase.functions.invoke('analyze-prompt', {
+          body: { prompt, type, sceneCount },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        setAiAnalysis(data);
+        toast.success(`✨ تم التحليل! شخصية: ${getCharLabel(data.character)} | بيئة: ${getSceneLabel(data.environment)}`);
       }
-      toast.success(`✨ تم التحليل! شخصية: ${getCharLabel(data.character)} | بيئة: ${getSceneLabel(data.environment)}`);
     } catch (err: any) {
       console.error('Analysis error:', err);
-      toast.error('فشل التحليل، سيتم استخدام الإعدادات الافتراضية');
+      // Fallback to offline
+      const sceneCount = type === 'scene-generator' ? 4 : 3;
+      const offlineResult = analyzePromptOffline(prompt, sceneCount);
+      setAiAnalysis({
+        character: offlineResult.character,
+        environment: offlineResult.environment,
+        scenes: offlineResult.scenes,
+        narrationText: offlineResult.narrationText,
+      });
+      toast.info('⚡ تم التحليل محلياً (بدون إنترنت)');
     } finally {
       setAnalyzing(false);
     }
@@ -181,36 +221,45 @@ export default function CreatePage() {
 
     try {
       if (isVideoType(type)) {
-        // Step 1: AI Analysis if not done yet
+        // Step 1: Analysis
         let analysis = aiAnalysis;
-        if (!analysis && (character === 'auto' || scene === 'auto')) {
-          setStatusText('🧠 جاري تحليل الوصف بالذكاء الاصطناعي...');
-          try {
-            const sceneCount = type === 'scene-generator' ? 4 : 3;
-            const { data } = await supabase.functions.invoke('analyze-prompt', {
-              body: { prompt, type, sceneCount },
-            });
-            if (data && !data.error) {
-              analysis = data;
-              setAiAnalysis(data);
+        const sceneCount = type === 'scene-generator' ? 4 : 3;
+        
+        if (!analysis) {
+          setStatusText('🧠 جاري تحليل الوصف...');
+          if (effectiveOffline) {
+            analysis = (() => {
+              const r = analyzePromptOffline(prompt, sceneCount);
+              return { character: r.character, environment: r.environment, scenes: r.scenes, narrationText: r.narrationText } as AIAnalysis;
+            })();
+            setAiAnalysis(analysis);
+          } else {
+            try {
+              const { data } = await supabase.functions.invoke('analyze-prompt', {
+                body: { prompt, type, sceneCount },
+              });
+              if (data && !data.error) {
+                analysis = data;
+                setAiAnalysis(data);
+              }
+            } catch {
+              // Fallback to offline
+              const r = analyzePromptOffline(prompt, sceneCount);
+              analysis = { character: r.character, environment: r.environment, scenes: r.scenes, narrationText: r.narrationText };
+              setAiAnalysis(analysis);
             }
-          } catch {
-            console.warn('Auto-analysis failed, using defaults');
           }
           setProgress(10);
         }
 
         // Step 2: Generate scene images
-        const sceneCount = type === 'scene-generator' ? 4 : 3;
         const capDuration = Math.min(duration, 15);
         let sceneImageUrls: string[] = [];
 
-        // Use AI-generated scene prompts if available
         const sceneDescriptions: string[] = analysis?.scenes?.length
           ? analysis.scenes.slice(0, sceneCount).map(s => typeof s === 'string' ? s : s.description)
           : buildDefaultScenePrompts(prompt, style, effectiveChar, effectiveScene, sceneCount);
 
-        // Extract motion data from AI scenes
         const sceneMotions: SceneMotion[] = (analysis?.scenes || []).slice(0, sceneCount).map((s, i) => {
           if (typeof s === 'string') {
             return { action: 'idle' as const, camera: 'static' as const, intensity: 0.5, characterDirection: 'center' as const, description: s };
@@ -224,33 +273,56 @@ export default function CreatePage() {
           };
         });
 
-        if (type === 'image-to-video' && sourceImage) {
-          setStatusText('🎨 جاري إنتاج مشاهد متحركة من الصورة...');
-          sceneImageUrls.push(sourceImage);
-
-          for (let i = 0; i < Math.min(2, sceneDescriptions.length); i++) {
-            setStatusText(`🎬 إنتاج المشهد ${i + 2}...`);
-            try {
-              const result = await generateImage(sceneDescriptions[i], style);
-              sceneImageUrls.push(result.imageUrl);
-            } catch {
-              console.warn(`Scene ${i + 2} failed, skipping`);
-            }
-            setProgress(15 + ((i + 1) / sceneCount) * 20);
+        if (effectiveOffline) {
+          // OFFLINE: Generate images with Canvas
+          setStatusText('🎨 إنتاج المشاهد محلياً (بدون إنترنت)...');
+          
+          if (type === 'image-to-video' && sourceImage) {
+            sceneImageUrls.push(sourceImage);
+            const offlineImages = generateOfflineSceneImages(
+              sceneDescriptions.slice(0, 2),
+              effectiveScene,
+              effectiveChar
+            );
+            sceneImageUrls.push(...offlineImages);
+          } else {
+            sceneImageUrls = generateOfflineSceneImages(
+              sceneDescriptions,
+              effectiveScene,
+              effectiveChar
+            );
           }
+          setProgress(40);
         } else {
-          for (let i = 0; i < sceneDescriptions.length; i++) {
-            setStatusText(`🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
-            try {
-              const result = await generateImage(sceneDescriptions[i], style);
-              sceneImageUrls.push(result.imageUrl);
-            } catch (err) {
-              console.warn(`Scene ${i + 1} failed:`, err);
-              if (sceneImageUrls.length === 0 && i === sceneDescriptions.length - 1) {
-                throw new Error('فشل إنتاج جميع المشاهد. جرّب وصفاً أبسط.');
+          // ONLINE: Generate with AI
+          if (type === 'image-to-video' && sourceImage) {
+            setStatusText('🎨 جاري إنتاج مشاهد متحركة من الصورة...');
+            sceneImageUrls.push(sourceImage);
+            for (let i = 0; i < Math.min(2, sceneDescriptions.length); i++) {
+              setStatusText(`🎬 إنتاج المشهد ${i + 2}...`);
+              try {
+                const result = await generateImage(sceneDescriptions[i], style);
+                sceneImageUrls.push(result.imageUrl);
+              } catch {
+                console.warn(`Scene ${i + 2} failed, generating offline`);
+                const offImg = generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar);
+                sceneImageUrls.push(...offImg);
               }
+              setProgress(15 + ((i + 1) / sceneCount) * 20);
             }
-            setProgress(15 + ((i + 1) / sceneDescriptions.length) * 25);
+          } else {
+            for (let i = 0; i < sceneDescriptions.length; i++) {
+              setStatusText(`🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
+              try {
+                const result = await generateImage(sceneDescriptions[i], style);
+                sceneImageUrls.push(result.imageUrl);
+              } catch (err) {
+                console.warn(`Scene ${i + 1} failed, using offline:`, err);
+                const offImg = generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar);
+                sceneImageUrls.push(...offImg);
+              }
+              setProgress(15 + ((i + 1) / sceneDescriptions.length) * 25);
+            }
           }
         }
 
@@ -258,18 +330,32 @@ export default function CreatePage() {
           throw new Error('فشل إنتاج المشاهد. جرّب وصفاً مختلفاً.');
         }
 
-        // Step 3: Generate speech audio for merging
+        // Step 3: Generate speech audio
         let audioBlob: Blob | null = null;
         if (enableNarration) {
-          setStatusText('🎤 جاري إنتاج الصوت...');
+          setStatusText('🎤 جاري إنتاج الصوت بأصوات الشخصيات...');
           const narrationText = analysis?.narrationText || prompt;
-          audioBlob = await generateSpeechBlob(narrationText);
+          
+          // Extract characters for voice mapping
+          const offlineAnalysis = analyzePromptOffline(prompt);
+          const characterVoices: CharacterVoice[] = offlineAnalysis.characters.map(c => ({
+            name: c.name,
+            voiceType: c.voiceType,
+            pitch: 1,
+            rate: 0.9,
+          }));
+
+          // If no specific characters found, use narrator voice
+          if (characterVoices.length === 1 && characterVoices[0].name === 'الراوي') {
+            characterVoices[0].voiceType = narratorVoice;
+          }
+
+          audioBlob = await generateCharacterAudioBlob(narrationText, characterVoices);
           setProgress(50);
         }
 
-        // Step 4: Generate animated video with motion + audio
-        setStatusText('🎬 جاري إنتاج الفيديو المتحرك مع الحركة والصوت...');
-
+        // Step 4: Generate animated video
+        setStatusText('🎬 جاري إنتاج الفيديو المتحرك...');
         const videoBlob = await generateAnimatedVideo({
           sceneImages: sceneImageUrls,
           durationSec: capDuration,
@@ -291,37 +377,77 @@ export default function CreatePage() {
           generatedVideoUrl: videoUrl,
         });
 
-        toast.success(`تم إنتاج فيديو متحرك بـ ${sceneImageUrls.length} مشاهد${audioBlob ? ' مع صوت! 🔊' : '! 🎬'}`);
+        toast.success(`تم إنتاج فيديو متحرك بـ ${sceneImageUrls.length} مشاهد${audioBlob ? ' مع صوت! 🔊' : '! 🎬'}${effectiveOffline ? ' (أوفلاين)' : ''}`);
       } else if (type === 'text-to-audio') {
-        setStatusText('🎤 جاري إنتاج الصوت...');
-        const aiPrompt = buildSinglePrompt(type, prompt, style, effectiveChar, effectiveScene);
-        const result = await generateImage(aiPrompt, style);
-        setProgress(50);
+        setStatusText('🎤 جاري إنتاج الصوت بأصوات الشخصيات...');
+        
+        const offlineAnalysis = analyzePromptOffline(prompt);
+        const characterVoices: CharacterVoice[] = offlineAnalysis.characters.map(c => ({
+          name: c.name,
+          voiceType: c.voiceType,
+          pitch: 1,
+          rate: 0.9,
+        }));
+        if (characterVoices.length === 1 && characterVoices[0].name === 'الراوي') {
+          characterVoices[0].voiceType = narratorVoice;
+        }
 
-        speakText(prompt);
+        const audioBlob = await generateCharacterAudioBlob(prompt, characterVoices);
+        setProgress(60);
+
+        // Generate a thumbnail
+        let thumbUrl: string | undefined;
+        if (!effectiveOffline) {
+          try {
+            const aiPrompt = buildSinglePrompt(type, prompt, style, getEffectiveCharacter(), getEffectiveScene());
+            const result = await generateImage(aiPrompt, style);
+            thumbUrl = result.imageUrl;
+          } catch {
+            const imgs = generateOfflineSceneImages([prompt], getEffectiveScene(), getEffectiveCharacter());
+            thumbUrl = imgs[0];
+          }
+        } else {
+          const imgs = generateOfflineSceneImages([prompt], getEffectiveScene(), getEffectiveCharacter());
+          thumbUrl = imgs[0];
+        }
+
         setProgress(100);
         setStatusText('✅ تم إنتاج الصوت!');
 
         updateProject(id, {
           status: 'ready',
           outputs: ['audio.wav'],
-          generatedImageUrl: result.imageUrl,
+          generatedImageUrl: thumbUrl,
         });
         toast.success('تم إنتاج الصوت بنجاح! 🎙️');
       } else {
         // text-to-image
         setStatusText('🎨 جاري إنتاج الصورة...');
-        const aiPrompt = buildSinglePrompt(type, prompt, style, effectiveChar, effectiveScene);
-        const result = await generateImage(aiPrompt, style);
+        let imageUrl: string;
+
+        if (effectiveOffline) {
+          const imgs = generateOfflineSceneImages([prompt], getEffectiveScene(), getEffectiveCharacter());
+          imageUrl = imgs[0];
+        } else {
+          try {
+            const aiPrompt = buildSinglePrompt(type, prompt, style, getEffectiveCharacter(), getEffectiveScene());
+            const result = await generateImage(aiPrompt, style);
+            imageUrl = result.imageUrl;
+          } catch {
+            const imgs = generateOfflineSceneImages([prompt], getEffectiveScene(), getEffectiveCharacter());
+            imageUrl = imgs[0];
+          }
+        }
+
         setProgress(100);
         setStatusText('✅ تم الإنتاج!');
 
         updateProject(id, {
           status: 'ready',
           outputs: ['generated-image.png'],
-          generatedImageUrl: result.imageUrl,
+          generatedImageUrl: imageUrl,
         });
-        toast.success('تم إنتاج الصورة بنجاح! 🎨');
+        toast.success(`تم إنتاج الصورة بنجاح! 🎨${effectiveOffline ? ' (أوفلاين)' : ''}`);
       }
 
       setTimeout(() => {
@@ -342,10 +468,35 @@ export default function CreatePage() {
     }
   };
 
+  const voiceOptions = getVoiceOptions();
+
   return (
     <div className="px-5 pb-24 pt-8">
       <h1 className="text-2xl font-black text-foreground">ابدأ الإنشاء الآن</h1>
       <p className="mt-1 text-sm text-muted-foreground">اختر نوع المشروع واضبط التفاصيل — <span className="text-gradient font-bold">مجاني تماماً</span></p>
+
+      {/* Online/Offline Toggle */}
+      <div className="mt-4 flex items-center gap-3 rounded-xl bg-card border border-border p-3">
+        <button
+          onClick={() => setForceOffline(!forceOffline)}
+          className={`w-10 h-6 rounded-full transition-all relative ${effectiveOffline ? 'bg-orange-500' : 'bg-primary'}`}
+        >
+          <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${effectiveOffline ? 'left-1' : 'right-1'}`} />
+        </button>
+        <div className="flex items-center gap-2">
+          {effectiveOffline ? <WifiOff className="h-4 w-4 text-orange-500" /> : <Wifi className="h-4 w-4 text-primary" />}
+          <div>
+            <span className="text-sm font-semibold text-foreground">
+              {effectiveOffline ? '📴 وضع بدون إنترنت' : '🌐 وضع الإنترنت'}
+            </span>
+            <p className="text-xs text-muted-foreground">
+              {effectiveOffline
+                ? 'إنتاج محلي بالكامل — صور مرسومة وأصوات الجهاز'
+                : 'إنتاج بالذكاء الاصطناعي مع إنشاء صور واقعية'}
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Type Selection */}
       <h2 className="mt-6 mb-3 text-base font-bold text-foreground">نوع التحويل</h2>
@@ -424,6 +575,29 @@ export default function CreatePage() {
         </>
       )}
 
+      {/* Voice Selection */}
+      {(isVideoType(type) || type === 'text-to-audio') && (
+        <div className="mt-4 space-y-2">
+          <label className="text-sm font-bold text-foreground flex items-center gap-1.5">
+            🎤 صوت الراوي / الشخصيات
+          </label>
+          <p className="text-xs text-muted-foreground mb-2">
+            يتم كشف الشخصيات تلقائياً من النص (مثلاً: مريم = صوت بنت، حسام = صوت شاب). اختر الصوت الافتراضي:
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {voiceOptions.map(v => (
+              <button
+                key={v.value}
+                onClick={() => setNarratorVoice(v.value)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${v.value === narratorVoice ? 'gradient-primary text-primary-foreground' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+              >
+                <span>{v.emoji}</span> {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Narration, Talking, Audio toggles */}
       {(isVideoType(type) || type === 'text-to-audio') && (
         <div className="mt-4 space-y-2">
@@ -458,7 +632,7 @@ export default function CreatePage() {
           {isVideoType(type) && (
             <div className="rounded-xl bg-accent/50 border border-border p-3">
               <p className="text-xs text-muted-foreground">
-                🎬 سيتم إنتاج <strong className="text-foreground">{type === 'scene-generator' ? '4' : '3'} مشاهد متتابعة</strong> بالذكاء الاصطناعي ودمجها في فيديو متحرك سينمائي
+                {effectiveOffline ? '📴' : '🎬'} سيتم إنتاج <strong className="text-foreground">{type === 'scene-generator' ? '4' : '3'} مشاهد متتابعة</strong> {effectiveOffline ? 'محلياً' : 'بالذكاء الاصطناعي'} ودمجها في فيديو متحرك سينمائي
                 {enableNarration && <span className="text-primary font-semibold"> مع صوت مدمج 🔊</span>}
               </p>
             </div>
@@ -496,7 +670,7 @@ export default function CreatePage() {
         value={prompt}
         onChange={(e) => {
           setPrompt(e.target.value);
-          setAiAnalysis(null); // Reset analysis when prompt changes
+          setAiAnalysis(null);
         }}
         disabled={processing}
       />
@@ -509,7 +683,7 @@ export default function CreatePage() {
           className="mt-2 w-full rounded-xl bg-accent border border-border py-2.5 text-sm font-semibold text-foreground flex items-center justify-center gap-2 hover:bg-primary/10 hover:border-primary/30 transition-all disabled:opacity-50"
         >
           <Wand2 className={`h-4 w-4 text-primary ${analyzing ? 'animate-spin' : ''}`} />
-          {analyzing ? 'جاري التحليل بالذكاء الاصطناعي...' : '🤖 تحليل تلقائي (اختيار الشخصية والبيئة والمشاهد)'}
+          {analyzing ? 'جاري التحليل...' : effectiveOffline ? '⚡ تحليل محلي (بدون إنترنت)' : '🤖 تحليل تلقائي (اختيار الشخصية والبيئة والمشاهد)'}
         </button>
       )}
 
@@ -576,7 +750,7 @@ export default function CreatePage() {
         ) : (
           <>
             <Play className="h-4 w-4" />
-            ابدأ الإنتاج الآن — مجاناً
+            {effectiveOffline ? '⚡ ابدأ الإنتاج — أوفلاين' : 'ابدأ الإنتاج الآن — مجاناً'}
           </>
         )}
       </button>

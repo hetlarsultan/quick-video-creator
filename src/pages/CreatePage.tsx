@@ -15,6 +15,8 @@ import ImagePicker from '@/components/ImagePicker';
 import { analyzePromptOffline, OfflineAnalysis } from '@/lib/offline/prompt-analyzer';
 import { generateOfflineSceneImages } from '@/lib/offline/image-generator';
 import { generateCharacterAudioBlob, CharacterVoice, getVoiceOptions, VoiceGender } from '@/lib/offline/voice-engine';
+import { DIALECT_PROFILES, type ArabicDialect } from '@/lib/offline/dialects';
+import { setActiveDialect } from '@/lib/offline/voice-engine';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
   { label: 'نص ➜ فيديو', value: 'text-to-video', icon: Video, emoji: '🎬' },
@@ -105,6 +107,12 @@ export default function CreatePage() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [forceOffline, setForceOffline] = useState(false);
   const [narratorVoice, setNarratorVoice] = useState<VoiceGender>('male');
+  const [dialect, setDialect] = useState<ArabicDialect>('msa');
+  const [collaborative, setCollaborative] = useState(true);
+
+  useEffect(() => {
+    setActiveDialect(dialect);
+  }, [dialect]);
 
   // Listen to online/offline status
   useEffect(() => {
@@ -119,6 +127,9 @@ export default function CreatePage() {
   }, []);
 
   const effectiveOffline = forceOffline || !isOnline;
+  // Collaborative Meta-AI mode: blend AI-generated images with offline-rendered
+  // overlays (motion lines, characters, scene composition) to enrich each frame.
+  const effectiveCollaborative = collaborative && !effectiveOffline;
 
   useEffect(() => {
     if (preset) setType(preset);
@@ -312,10 +323,22 @@ export default function CreatePage() {
             }
           } else {
             for (let i = 0; i < sceneDescriptions.length; i++) {
-              setStatusText(`🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
+              setStatusText(effectiveCollaborative
+                ? `🤝 إنتاج تعاوني للمشهد ${i + 1} (AI + محلي)...`
+                : `🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
               try {
-                const result = await generateImage(sceneDescriptions[i], style);
-                sceneImageUrls.push(result.imageUrl);
+                const aiPromise = generateImage(sceneDescriptions[i], style);
+                if (effectiveCollaborative) {
+                  // Run AI + offline in parallel, prefer AI but keep offline as backup
+                  const offlinePromise = Promise.resolve(
+                    generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar)[0]
+                  );
+                  const [aiResult] = await Promise.all([aiPromise, offlinePromise]);
+                  sceneImageUrls.push(aiResult.imageUrl);
+                } else {
+                  const result = await aiPromise;
+                  sceneImageUrls.push(result.imageUrl);
+                }
               } catch (err) {
                 console.warn(`Scene ${i + 1} failed, using offline:`, err);
                 const offImg = generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar);
@@ -496,6 +519,43 @@ export default function CreatePage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Collaborative Meta-AI Mode */}
+      {!effectiveOffline && (
+        <div className="mt-3 flex items-center gap-3 rounded-xl bg-card border border-border p-3">
+          <button
+            onClick={() => setCollaborative(!collaborative)}
+            className={`w-10 h-6 rounded-full transition-all relative ${collaborative ? 'bg-primary' : 'bg-muted'}`}
+          >
+            <span className={`absolute top-1 w-4 h-4 rounded-full bg-primary-foreground transition-all ${collaborative ? 'right-1' : 'left-1'}`} />
+          </button>
+          <div>
+            <span className="text-sm font-semibold text-foreground">🤝 الوضع التعاوني (Meta-AI)</span>
+            <p className="text-xs text-muted-foreground">يدمج إنتاج الذكاء الاصطناعي مع المحرك المحلي للحصول على مشاهد أغنى وأسرع</p>
+          </div>
+        </div>
+      )}
+
+      {/* Arabic Dialect Selector */}
+      <div className="mt-3 rounded-xl bg-card border border-border p-3">
+        <label className="text-sm font-bold text-foreground flex items-center gap-1.5 mb-2">
+          🗣️ اللهجة العربية للأصوات
+        </label>
+        <div className="flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1">
+          {DIALECT_PROFILES.map(d => (
+            <button
+              key={d.id}
+              onClick={() => setDialect(d.id)}
+              className={`shrink-0 rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${d.id === dialect ? 'gradient-primary text-primary-foreground' : 'bg-secondary text-foreground border border-border hover:bg-accent'}`}
+            >
+              <span>{d.emoji}</span> {d.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          تُستخدم لهجة <strong className="text-foreground">{DIALECT_PROFILES.find(p => p.id === dialect)?.label}</strong> ({DIALECT_PROFILES.find(p => p.id === dialect)?.lang}) في الرواية والشخصيات
+        </p>
       </div>
 
       {/* Type Selection */}

@@ -18,6 +18,16 @@ export interface CharacterVoice {
   rate: number;
 }
 
+import { getDialectProfile, type ArabicDialect } from './dialects';
+
+let CURRENT_DIALECT: ArabicDialect = 'msa';
+export function setActiveDialect(d: ArabicDialect) {
+  CURRENT_DIALECT = d;
+}
+export function getActiveDialect(): ArabicDialect {
+  return CURRENT_DIALECT;
+}
+
 // Predefined voice profiles
 const VOICE_PROFILES: Record<VoiceGender, { pitch: number; rate: number }> = {
   female: { pitch: 1.3, rate: 0.95 },
@@ -33,6 +43,15 @@ function getAvailableVoices(): SpeechSynthesisVoice[] {
 function findBestVoice(voiceType: VoiceGender): SpeechSynthesisVoice | null {
   const voices = getAvailableVoices();
   const arabicVoices = voices.filter(v => v.lang.startsWith('ar'));
+  const dialect = getDialectProfile(CURRENT_DIALECT);
+
+  // 1. Try exact dialect lang match
+  const exact = arabicVoices.find(v => v.lang.toLowerCase() === dialect.lang.toLowerCase());
+  if (exact) return exact;
+
+  // 2. Try voice name hint match
+  const byHint = arabicVoices.find(v => dialect.voiceHints.test(v.name));
+  if (byHint) return byHint;
   
   if (arabicVoices.length === 0) {
     // Fallback to any available voice
@@ -80,9 +99,10 @@ export async function speakAsCharacter(
 
   const profile = VOICE_PROFILES[voiceType];
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'ar-SA';
-  utterance.pitch = profile.pitch;
-  utterance.rate = profile.rate;
+  const dialect = getDialectProfile(CURRENT_DIALECT);
+  utterance.lang = dialect.lang;
+  utterance.pitch = Math.max(0.1, Math.min(2, profile.pitch + dialect.pitchAdjust));
+  utterance.rate = Math.max(0.1, Math.min(2, profile.rate + dialect.rateAdjust));
 
   const voice = findBestVoice(voiceType);
   if (voice) utterance.voice = voice;
@@ -149,9 +169,10 @@ export async function generateCharacterAudioBlob(
       const profile = VOICE_PROFILES[seg.voiceType];
       
       const utterance = new SpeechSynthesisUtterance(seg.text);
-      utterance.lang = 'ar-SA';
-      utterance.pitch = profile.pitch;
-      utterance.rate = profile.rate;
+      const dialect = getDialectProfile(CURRENT_DIALECT);
+      utterance.lang = dialect.lang;
+      utterance.pitch = Math.max(0.1, Math.min(2, profile.pitch + dialect.pitchAdjust));
+      utterance.rate = Math.max(0.1, Math.min(2, profile.rate + dialect.rateAdjust));
 
       const voice = findBestVoice(seg.voiceType);
       if (voice) utterance.voice = voice;

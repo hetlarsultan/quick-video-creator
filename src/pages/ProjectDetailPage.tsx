@@ -4,6 +4,7 @@ import { useProjects } from '@/lib/ProjectsContext';
 import { toast } from 'sonner';
 import { useState, useRef } from 'react';
 import { speakText } from '@/lib/tts';
+import { convertWebmToMp4, downloadBlobAsFile } from '@/lib/video-export';
 
 const typeLabel: Record<string, string> = {
   'text-to-video': '🎬 نص ➜ فيديو',
@@ -47,6 +48,8 @@ export default function ProjectDetailPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [exportingMp4, setExportingMp4] = useState(false);
+  const [mp4Progress, setMp4Progress] = useState(0);
 
   if (!project) {
     return (
@@ -133,6 +136,23 @@ export default function ProjectDetailPage() {
     } else {
       setIsSpeaking(true);
       speakText(project.prompt, () => setIsSpeaking(false));
+    }
+  };
+
+  const handleExportMp4 = async () => {
+    if (!hasVideo) return;
+    setExportingMp4(true);
+    setMp4Progress(0);
+    toast.info('🎞️ جاري تحويل الفيديو إلى MP4 (قد يستغرق لحظات)...');
+    try {
+      const mp4Blob = await convertWebmToMp4(project.generatedVideoUrl!, (pct) => setMp4Progress(pct));
+      downloadBlobAsFile(mp4Blob, `${project.title}.mp4`);
+      toast.success('✅ تم حفظ MP4 على جهازك!');
+    } catch (e: any) {
+      toast.error(e.message || 'فشل تحويل الفيديو إلى MP4');
+    } finally {
+      setExportingMp4(false);
+      setMp4Progress(0);
     }
   };
 
@@ -350,13 +370,27 @@ export default function ProjectDetailPage() {
 
       {/* Download All */}
       {project.status === 'ready' && (hasImage || hasVideo) && (
-        <button
-          onClick={handleDownloadAll}
-          className="mt-6 w-full rounded-2xl gradient-primary py-4 text-base font-bold text-primary-foreground flex items-center justify-center gap-2 glow-primary hover:scale-[1.01] transition-all"
-        >
-          <Download className="h-4 w-4" />
-          {hasVideo ? 'تحميل الفيديو — مجاناً' : 'تحميل الكل — مجاناً'}
-        </button>
+        <div className="mt-6 space-y-2">
+          <button
+            onClick={handleDownloadAll}
+            className="w-full rounded-2xl gradient-primary py-4 text-base font-bold text-primary-foreground flex items-center justify-center gap-2 glow-primary hover:scale-[1.01] transition-all"
+          >
+            <Download className="h-4 w-4" />
+            {hasVideo ? 'تحميل الفيديو (WebM) — مجاناً' : 'تحميل الكل — مجاناً'}
+          </button>
+          {hasVideo && (
+            <button
+              onClick={handleExportMp4}
+              disabled={exportingMp4}
+              className="w-full rounded-2xl bg-card border border-primary/40 py-3 text-sm font-bold text-primary flex items-center justify-center gap-2 hover:bg-primary/10 transition-all disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {exportingMp4
+                ? `جاري التحويل... ${mp4Progress}%`
+                : '📱 تصدير MP4 وحفظ على الهاتف'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

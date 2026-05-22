@@ -54,7 +54,9 @@ export async function convertWebmToMp4(
       'output.mp4',
     ]);
     const data = await ffmpeg.readFile('output.mp4');
-    return new Blob([data as Uint8Array], { type: 'video/mp4' });
+    const bytes = data as Uint8Array;
+    const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    return new Blob([buf], { type: 'video/mp4' });
   } catch (err) {
     console.warn('MP4 conversion failed, returning WebM:', err);
     if (source instanceof Blob) return source;

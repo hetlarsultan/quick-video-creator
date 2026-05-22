@@ -424,11 +424,7 @@ export default function CreatePage() {
               const upgraded = [...sceneImageUrls];
               let upgradedCount = 0;
               await Promise.all(failedSceneIndices.map(async (idx) => {
-                // For image-to-video, sceneImageUrls[0] is the source image,
-                // so failedSceneIndices store i+1 — map back to the correct description.
-                const isImgToVideo = type === 'image-to-video' && sourceImage;
-                const descIdx = isImgToVideo ? idx - 1 : idx;
-                const desc = sceneDescriptions[descIdx] || sceneDescriptions[0] || prompt;
+                const desc = sceneDescriptions[idx] || sceneDescriptions[idx - 1] || prompt;
                 try {
                   const r = await generateImage(desc, style);
                   upgraded[idx] = r.imageUrl;

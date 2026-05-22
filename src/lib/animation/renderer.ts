@@ -62,8 +62,8 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
     sceneImages,
     durationSec,
     prompt,
-    width: requestedWidth = 1080,
-    height: requestedHeight = 1080,
+    width = 1080,
+    height = 1080,
     enableTalking = false,
     audioBlob,
     sceneMotions,
@@ -71,13 +71,6 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
   } = options;
 
   if (sceneImages.length === 0) throw new Error('No scene images provided');
-
-  // ⚡ Adaptive resolution: on mobile / low-mem devices, render smaller for speed & smoothness.
-  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  const deviceMem = (navigator as any).deviceMemory || 4;
-  const scaleFactor = isMobile || deviceMem < 4 ? 0.66 : 1; // 720x720 on mobile
-  const width = Math.round(requestedWidth * scaleFactor);
-  const height = Math.round(requestedHeight * scaleFactor);
 
   const images = await Promise.all(sceneImages.map(loadImage));
 
@@ -89,28 +82,27 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })!;
+  const ctx = canvas.getContext('2d')!;
 
-  const fps = isMobile ? 24 : 30;
+  const fps = 30;
   const totalFrames = durationSec * fps;
   const framesPerScene = totalFrames / scenes.length;
   const transitionFrames = Math.min(Math.floor(framesPerScene * 0.25), fps * 1.5);
 
   // --- Merge video + audio streams ---
-  // Note: we DEFER audio source.start() until recorder.start() to avoid sync drift.
   const videoStream = canvas.captureStream(fps);
   let combinedStream: MediaStream;
-  let audioSource: AudioBufferSourceNode | null = null;
 
   if (audioBlob) {
     try {
       const audioCtx = new AudioContext();
       const arrayBuf = await audioBlob.arrayBuffer();
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
-      audioSource = audioCtx.createBufferSource();
-      audioSource.buffer = audioBuffer;
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
       const dest = audioCtx.createMediaStreamDestination();
-      audioSource.connect(dest);
+      source.connect(dest);
+      source.start();
       combinedStream = new MediaStream([
         ...videoStream.getVideoTracks(),
         ...dest.stream.getAudioTracks(),
@@ -123,24 +115,13 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
     combinedStream = videoStream;
   }
 
-  // 🍎 Safari/iOS fallback: prefer mp4 if webm is not supported.
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
-    'video/webm',
-    'video/mp4;codecs=h264,aac',
-    'video/mp4',
-  ];
-  const mimeType = candidates.find(m => {
-    try { return MediaRecorder.isTypeSupported(m); } catch { return false; }
-  }) || '';
-  const containerType = mimeType.startsWith('video/mp4') ? 'video/mp4' : 'video/webm';
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+    ? 'video/webm;codecs=vp9,opus'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9'
+    : 'video/webm';
 
-  const recorder = new MediaRecorder(
-    combinedStream,
-    mimeType ? { mimeType, videoBitsPerSecond: isMobile ? 2_500_000 : 5_000_000 } : { videoBitsPerSecond: isMobile ? 2_500_000 : 5_000_000 }
-  );
+  const recorder = new MediaRecorder(combinedStream, { mimeType, videoBitsPerSecond: 5_000_000 });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
@@ -149,11 +130,9 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
   const syllablesPerSec = Math.max(2, (wordCount / durationSec) * 2.5);
 
   return new Promise<Blob>((resolve, reject) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: containerType }));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
     recorder.onerror = (e) => reject(e);
     recorder.start();
-    // Start audio in the same tick as recorder for tight A/V sync.
-    try { audioSource?.start(); } catch (e) { console.warn('audio start failed', e); }
 
     let frame = 0;
 
@@ -250,8 +229,8 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         ctx.fillRect(0, 0, width, height);
       }
 
-      // Film grain — only on desktop and every 3rd frame (heavy on mobile).
-      if (!isMobile && frame % 3 === 0) drawFilmGrain(ctx, width, height);
+      // Film grain (every other frame)
+      if (frame % 2 === 0) drawFilmGrain(ctx, width, height);
 
       frame++;
       if (onProgress) onProgress(Math.round((frame / totalFrames) * 100));

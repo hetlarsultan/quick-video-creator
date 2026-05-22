@@ -414,6 +414,45 @@ export default function CreatePage() {
         });
 
         toast.success(`تم إنتاج فيديو متحرك بـ ${sceneImageUrls.length} مشاهد${audioBlob ? ' مع صوت! 🔊' : '! 🎬'}${effectiveOffline ? ' (أوفلاين)' : ''}`);
+
+        // 🔁 Background auto-retry: if we have failed scenes AND we're online,
+        // silently regenerate them via AI and rebuild the video for higher quality.
+        if (failedSceneIndices.length > 0 && !forceOffline && navigator.onLine) {
+          (async () => {
+            try {
+              toast.info(`🔄 إعادة محاولة ${failedSceneIndices.length} مشهد(مشاهد) بالـ AI في الخلفية...`);
+              const upgraded = [...sceneImageUrls];
+              let upgradedCount = 0;
+              await Promise.all(failedSceneIndices.map(async (idx) => {
+                const desc = sceneDescriptions[idx] || sceneDescriptions[idx - 1] || prompt;
+                try {
+                  const r = await generateImage(desc, style);
+                  upgraded[idx] = r.imageUrl;
+                  upgradedCount++;
+                } catch (e) {
+                  console.warn(`Background retry failed for scene ${idx}:`, e);
+                }
+              }));
+              if (upgradedCount === 0) return;
+              const newVideo = await generateAnimatedVideo({
+                sceneImages: upgraded,
+                durationSec: capDuration,
+                prompt,
+                enableTalking: enableTalking && effectiveChar !== 'none',
+                audioBlob,
+                sceneMotions: sceneMotions.length > 0 ? sceneMotions : undefined,
+              });
+              const newUrl = URL.createObjectURL(newVideo);
+              updateProject(id, {
+                generatedVideoUrl: newUrl,
+                generatedImageUrl: upgraded[0],
+              });
+              toast.success(`✨ تم تحسين ${upgradedCount} مشهد بالـ AI!`);
+            } catch (e) {
+              console.warn('Background AI retry failed:', e);
+            }
+          })();
+        }
       } else if (type === 'text-to-audio') {
         setStatusText('🎤 جاري إنتاج الصوت بأصوات الشخصيات...');
         

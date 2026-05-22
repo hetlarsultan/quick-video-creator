@@ -250,8 +250,8 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         ctx.fillRect(0, 0, width, height);
       }
 
-      // Film grain (every other frame)
-      if (frame % 2 === 0) drawFilmGrain(ctx, width, height);
+      // Film grain — only on desktop and every 3rd frame (heavy on mobile).
+      if (!isMobile && frame % 3 === 0) drawFilmGrain(ctx, width, height);
 
       frame++;
       if (onProgress) onProgress(Math.round((frame / totalFrames) * 100));

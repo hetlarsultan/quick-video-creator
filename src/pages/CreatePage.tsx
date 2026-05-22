@@ -284,6 +284,9 @@ export default function CreatePage() {
           };
         });
 
+        // Track which scene indices fell back to offline (so we can retry with AI later).
+        const failedSceneIndices: number[] = [];
+
         if (effectiveOffline) {
           // OFFLINE: Generate images with Canvas
           setStatusText('🎨 إنتاج المشاهد محلياً (بدون إنترنت)...');
@@ -303,49 +306,59 @@ export default function CreatePage() {
               effectiveChar
             );
           }
+          // All scenes are offline — mark them all as candidates for AI retry later.
+          sceneImageUrls.forEach((_, i) => failedSceneIndices.push(i));
           setProgress(40);
         } else {
-          // ONLINE: Generate with AI
+          // ONLINE: Generate with AI — parallelize for speed.
           if (type === 'image-to-video' && sourceImage) {
             setStatusText('🎨 جاري إنتاج مشاهد متحركة من الصورة...');
             sceneImageUrls.push(sourceImage);
-            for (let i = 0; i < Math.min(2, sceneDescriptions.length); i++) {
-              setStatusText(`🎬 إنتاج المشهد ${i + 2}...`);
+            const targets = sceneDescriptions.slice(0, 2);
+            setStatusText(`🎬 إنتاج ${targets.length} مشاهد بالتوازي...`);
+            let done = 0;
+            const results = await Promise.all(targets.map(async (desc, i) => {
               try {
-                const result = await generateImage(sceneDescriptions[i], style);
-                sceneImageUrls.push(result.imageUrl);
-              } catch {
-                console.warn(`Scene ${i + 2} failed, generating offline`);
-                const offImg = generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar);
-                sceneImageUrls.push(...offImg);
-              }
-              setProgress(15 + ((i + 1) / sceneCount) * 20);
-            }
-          } else {
-            for (let i = 0; i < sceneDescriptions.length; i++) {
-              setStatusText(effectiveCollaborative
-                ? `🤝 إنتاج تعاوني للمشهد ${i + 1} (AI + محلي)...`
-                : `🎬 إنتاج المشهد ${i + 1} من ${sceneDescriptions.length}...`);
-              try {
-                const aiPromise = generateImage(sceneDescriptions[i], style);
-                if (effectiveCollaborative) {
-                  // Run AI + offline in parallel, prefer AI but keep offline as backup
-                  const offlinePromise = Promise.resolve(
-                    generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar)[0]
-                  );
-                  const [aiResult] = await Promise.all([aiPromise, offlinePromise]);
-                  sceneImageUrls.push(aiResult.imageUrl);
-                } else {
-                  const result = await aiPromise;
-                  sceneImageUrls.push(result.imageUrl);
-                }
+                const r = await generateImage(desc, style);
+                done++;
+                setProgress(15 + (done / targets.length) * 20);
+                return { url: r.imageUrl, failed: false };
               } catch (err) {
-                console.warn(`Scene ${i + 1} failed, using offline:`, err);
-                const offImg = generateOfflineSceneImages([sceneDescriptions[i]], effectiveScene, effectiveChar);
-                sceneImageUrls.push(...offImg);
+                console.warn(`Scene ${i + 2} failed, using offline`, err);
+                const off = generateOfflineSceneImages([desc], effectiveScene, effectiveChar)[0];
+                done++;
+                setProgress(15 + (done / targets.length) * 20);
+                return { url: off, failed: true };
               }
-              setProgress(15 + ((i + 1) / sceneDescriptions.length) * 25);
-            }
+            }));
+            results.forEach((r, i) => {
+              sceneImageUrls.push(r.url);
+              if (r.failed) failedSceneIndices.push(i + 1); // +1 because source image is index 0
+            });
+          } else {
+            setStatusText(effectiveCollaborative
+              ? `🤝 إنتاج تعاوني متوازٍ لـ ${sceneDescriptions.length} مشاهد (AI + محلي)...`
+              : `🎬 إنتاج ${sceneDescriptions.length} مشاهد بالتوازي...`);
+            let done = 0;
+            const results = await Promise.all(sceneDescriptions.map(async (desc, i) => {
+              // Always render an offline backup in parallel (cheap + instant).
+              const offlineBackup = generateOfflineSceneImages([desc], effectiveScene, effectiveChar)[0];
+              try {
+                const r = await generateImage(desc, style);
+                done++;
+                setProgress(15 + (done / sceneDescriptions.length) * 25);
+                return { url: r.imageUrl, failed: false };
+              } catch (err) {
+                console.warn(`Scene ${i + 1} failed, using offline backup`, err);
+                done++;
+                setProgress(15 + (done / sceneDescriptions.length) * 25);
+                return { url: offlineBackup, failed: true };
+              }
+            }));
+            results.forEach((r, i) => {
+              sceneImageUrls.push(r.url);
+              if (r.failed) failedSceneIndices.push(i);
+            });
           }
         }
 
@@ -401,6 +414,45 @@ export default function CreatePage() {
         });
 
         toast.success(`تم إنتاج فيديو متحرك بـ ${sceneImageUrls.length} مشاهد${audioBlob ? ' مع صوت! 🔊' : '! 🎬'}${effectiveOffline ? ' (أوفلاين)' : ''}`);
+
+        // 🔁 Background auto-retry: if we have failed scenes AND we're online,
+        // silently regenerate them via AI and rebuild the video for higher quality.
+        if (failedSceneIndices.length > 0 && !forceOffline && navigator.onLine) {
+          (async () => {
+            try {
+              toast.info(`🔄 إعادة محاولة ${failedSceneIndices.length} مشهد(مشاهد) بالـ AI في الخلفية...`);
+              const upgraded = [...sceneImageUrls];
+              let upgradedCount = 0;
+              await Promise.all(failedSceneIndices.map(async (idx) => {
+                const desc = sceneDescriptions[idx] || sceneDescriptions[idx - 1] || prompt;
+                try {
+                  const r = await generateImage(desc, style);
+                  upgraded[idx] = r.imageUrl;
+                  upgradedCount++;
+                } catch (e) {
+                  console.warn(`Background retry failed for scene ${idx}:`, e);
+                }
+              }));
+              if (upgradedCount === 0) return;
+              const newVideo = await generateAnimatedVideo({
+                sceneImages: upgraded,
+                durationSec: capDuration,
+                prompt,
+                enableTalking: enableTalking && effectiveChar !== 'none',
+                audioBlob,
+                sceneMotions: sceneMotions.length > 0 ? sceneMotions : undefined,
+              });
+              const newUrl = URL.createObjectURL(newVideo);
+              updateProject(id, {
+                generatedVideoUrl: newUrl,
+                generatedImageUrl: upgraded[0],
+              });
+              toast.success(`✨ تم تحسين ${upgradedCount} مشهد بالـ AI!`);
+            } catch (e) {
+              console.warn('Background AI retry failed:', e);
+            }
+          })();
+        }
       } else if (type === 'text-to-audio') {
         setStatusText('🎤 جاري إنتاج الصوت بأصوات الشخصيات...');
         

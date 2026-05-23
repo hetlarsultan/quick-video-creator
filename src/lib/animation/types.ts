@@ -2,8 +2,8 @@
  * Types for the cinematic animation engine.
  */
 
-export type ActionType = 'idle' | 'talking' | 'walking' | 'running' | 'fighting' | 'chasing' | 'emotional' | 'dramatic';
-export type CameraMove = 'static' | 'pan-left' | 'pan-right' | 'zoom-in' | 'zoom-out' | 'shake' | 'dolly' | 'tilt-up' | 'tilt-down';
+export type ActionType = 'idle' | 'talking' | 'walking' | 'running' | 'fighting' | 'chasing' | 'emotional' | 'dramatic' | 'dancing';
+export type CameraMove = 'static' | 'pan-left' | 'pan-right' | 'zoom-in' | 'zoom-out' | 'shake' | 'dolly' | 'tilt-up' | 'tilt-down' | 'beat-pulse';
 
 export interface SceneMotion {
   action: ActionType;

@@ -36,8 +36,12 @@ serve(async (req) => {
 
     console.log("Generating image with prompt:", finalPrompt);
 
-    // Try with flash-image first, fallback to pro if safety blocked
-    const models = ["google/gemini-2.5-flash-image", "google/gemini-3.1-flash-image-preview"];
+    // Prefer highest-quality Gemini image models first, fall back to faster ones
+    const models = [
+      "google/gemini-3-pro-image-preview",
+      "google/gemini-3.1-flash-image-preview",
+      "google/gemini-2.5-flash-image",
+    ];
     
     for (const model of models) {
       const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

@@ -204,6 +204,33 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
         drawSpeedLines(ctx, width, height, scene.motion.intensity * char.energy, scene.motion.characterDirection);
       }
 
+      // Dance disco effect: pulsing color wash + light rays on the beat
+      if (scene.motion.action === 'dancing') {
+        const bpm = 120;
+        const beat = (timeSec * bpm) / 60;
+        const beatPhase = beat - Math.floor(beat);
+        const kick = Math.pow(1 - beatPhase, 2.5);
+        // Rotating disco color wash
+        const hue = (timeSec * 80) % 360;
+        ctx.globalCompositeOperation = 'overlay';
+        ctx.fillStyle = `hsla(${hue}, 80%, 55%, ${0.12 + kick * 0.18})`;
+        ctx.fillRect(0, 0, width, height);
+        ctx.globalCompositeOperation = 'source-over';
+        // Beat flash
+        if (kick > 0.7) {
+          ctx.fillStyle = `rgba(255,255,255,${(kick - 0.7) * 0.5})`;
+          ctx.fillRect(0, 0, width, height);
+        }
+        // Radial light spotlights moving with the beat
+        const cx = width / 2 + Math.sin(beat * Math.PI) * width * 0.2;
+        const cy = height * 0.45;
+        const spot = ctx.createRadialGradient(cx, cy, 10, cx, cy, width * 0.5);
+        spot.addColorStop(0, `hsla(${(hue + 180) % 360},90%,65%,${0.18 + kick * 0.2})`);
+        spot.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = spot;
+        ctx.fillRect(0, 0, width, height);
+      }
+
       // Impact for fighting
       if (scene.motion.action === 'fighting') {
         drawImpactEffect(ctx, width, height, char.energy, timeSec);

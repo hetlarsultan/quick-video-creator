@@ -61,14 +61,14 @@ serve(async (req) => {
       if (!response.ok) {
         if (response.status === 429) {
           return new Response(
-            JSON.stringify({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً" }),
-            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "تم تجاوز حد الطلبات، حاول مرة أخرى لاحقاً", fallback: true }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
         if (response.status === 402) {
           return new Response(
-            JSON.stringify({ error: "يرجى إضافة رصيد لحساب Lovable AI" }),
-            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "يرجى إضافة رصيد لحساب Lovable AI", fallback: true }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
         const errorText = await response.text();

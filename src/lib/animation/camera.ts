@@ -45,6 +45,20 @@ export function computeCamera(
       return { offsetX: 0, offsetY: eased * h * 0.06 * str, scale: 1.12, rotation: -eased * 0.015 * str };
     case 'tilt-down':
       return { offsetX: 0, offsetY: -eased * h * 0.06 * str, scale: 1.12, rotation: eased * 0.015 * str };
+    case 'beat-pulse': {
+      // Camera pulses with a 120 BPM beat for music/dance scenes.
+      const bpm = 120;
+      const beat = (timeSec * bpm) / 60;
+      const beatPhase = beat - Math.floor(beat);
+      const kick = Math.pow(1 - beatPhase, 2.5);
+      const sway = Math.sin(beat * Math.PI) * 6 * str;
+      return {
+        offsetX: sway,
+        offsetY: -kick * 4 * str,
+        scale: 1.1 + kick * 0.06 * str,
+        rotation: Math.sin(beat * Math.PI * 2) * 0.01 * str,
+      };
+    }
     case 'static':
     default: {
       // Even "static" has subtle drift for life

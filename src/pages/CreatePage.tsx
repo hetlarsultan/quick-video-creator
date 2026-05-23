@@ -886,6 +886,17 @@ export default function CreatePage() {
           </>
         )}
       </button>
+
+      {/* Meta AI external assist */}
+      <a
+        href="https://www.meta.ai/create/1127748893764235"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 w-full rounded-2xl border border-primary/40 bg-card py-3 text-sm font-semibold text-foreground flex items-center justify-center gap-2 hover:bg-primary/10 transition-all"
+      >
+        <Sparkles className="h-4 w-4 text-primary" />
+        افتح في Meta AI (إنتاج فيديو خارجي) ↗
+      </a>
     </div>
   );
 }

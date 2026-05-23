@@ -121,6 +121,27 @@ export function computeCharacter(
       };
     }
 
+    case 'dancing': {
+      // Beat-driven dance choreography (~120 BPM = 2 beats/sec).
+      const bpm = 120;
+      const beat = (timeSec * bpm) / 60; // beats elapsed
+      const beatPhase = beat - Math.floor(beat); // 0→1 within a beat
+      const kick = Math.pow(1 - beatPhase, 2.2); // sharp downbeat envelope
+      const sway = Math.sin(beat * Math.PI); // long swing
+      const bounce = Math.abs(Math.sin(beat * Math.PI * 2)); // up-down per beat
+      const spinPhase = Math.sin(beat * Math.PI / 4); // slow body rotation
+
+      return {
+        offsetX: sway * 28 * str + Math.sin(timeSec * 6) * 6,
+        offsetY: breathY - bounce * 22 * str - kick * 10 * str,
+        scaleX: breathScale + kick * 0.04 * str,
+        scaleY: breathScale + kick * 0.05 * str + bounce * 0.02,
+        rotation: spinPhase * 0.06 * str + Math.sin(beat * Math.PI * 2) * 0.025,
+        jawStretch: 1 + kick * 0.01,
+        energy: 0.6 + kick * 0.4,
+      };
+    }
+
     case 'idle':
     default:
       return {

@@ -42,6 +42,9 @@ const ACTION_KEYWORDS: Record<string, ActionType> = {
   'تعصب': 'emotional', 'يعصب': 'emotional', 'غضب': 'emotional', 'يبكي': 'emotional', 'تبكي': 'emotional', 'حزن': 'emotional',
   'تلعب': 'idle', 'يلعب': 'idle', 'لعب': 'idle',
   'يجلس': 'idle', 'تجلس': 'idle',
+  'يرقص': 'dancing', 'ترقص': 'dancing', 'رقص': 'dancing', 'رقصة': 'dancing', 'رقصه': 'dancing',
+  'يغني': 'dancing', 'تغني': 'dancing', 'أغنية': 'dancing', 'اغنية': 'dancing', 'اغنيه': 'dancing', 'موسيقى': 'dancing',
+  'dance': 'dancing', 'dancing': 'dancing', 'song': 'dancing', 'music': 'dancing',
 };
 
 const ENVIRONMENT_KEYWORDS: Record<string, string> = {
@@ -124,13 +127,14 @@ function buildScenes(prompt: string, actions: ActionType[], count: number): Offl
     const action = actions[Math.min(i, actions.length - 1)] || 'idle';
     const intensityMap: Record<ActionType, number> = {
       idle: 0.3, talking: 0.4, walking: 0.5, emotional: 0.6,
-      dramatic: 0.7, running: 0.8, chasing: 0.85, fighting: 0.95,
+      dramatic: 0.7, running: 0.8, chasing: 0.85, fighting: 0.95, dancing: 0.85,
     };
     
     const progress = i / Math.max(1, count - 1); // 0→1
     let camera = cameras[i % cameras.length];
     if (action === 'fighting') camera = 'shake';
     if (action === 'chasing' || action === 'running') camera = 'pan-right';
+    if (action === 'dancing') camera = i % 2 === 0 ? 'beat-pulse' : 'shake';
     if (i === 0) camera = 'zoom-in';
     if (i === count - 1) camera = 'zoom-out';
 

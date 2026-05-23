@@ -284,6 +284,26 @@ export default function CreatePage() {
           };
         });
 
+        // 💃 Auto-detect dance/music keywords → force every scene into a beat-driven dance.
+        const danceRegex = /(يرقص|ترقص|رقص|رقصة|رقصه|يغني|تغني|أغنية|اغنية|اغنيه|موسيقى|dance|dancing|song|music)/i;
+        const isDanceRequest = danceRegex.test(prompt);
+        if (isDanceRequest) {
+          // Ensure we have one motion entry per scene image we'll produce
+          const targetCount = Math.max(sceneMotions.length, sceneDescriptions.length || sceneCount, 1);
+          while (sceneMotions.length < targetCount) {
+            sceneMotions.push({
+              action: 'idle', camera: 'static', intensity: 0.85,
+              characterDirection: 'center', description: prompt,
+            });
+          }
+          sceneMotions.forEach((m, i) => {
+            m.action = 'dancing';
+            m.camera = i % 2 === 0 ? 'beat-pulse' : 'shake';
+            m.intensity = 0.9;
+            m.characterDirection = i % 2 === 0 ? 'left' : 'right';
+          });
+        }
+
         // Track which scene indices fell back to offline (so we can retry with AI later).
         const failedSceneIndices: number[] = [];
 

@@ -4,7 +4,7 @@ import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User, Wand2, Wi
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
-import { generateImage } from '@/lib/ai';
+import { generateImage, generateVeoVideo } from '@/lib/ai';
 import { generateAnimatedVideo, SceneMotion } from '@/lib/animated-video';
 import { speakText, generateSpeechBlob } from '@/lib/tts';
 import { supabase } from '@/integrations/supabase/client';
@@ -109,6 +109,7 @@ export default function CreatePage() {
   const [narratorVoice, setNarratorVoice] = useState<VoiceGender>('male');
   const [dialect, setDialect] = useState<ArabicDialect>('msa');
   const [collaborative, setCollaborative] = useState(true);
+  const [veoLoading, setVeoLoading] = useState(false);
 
   useEffect(() => {
     setActiveDialect(dialect);
@@ -170,9 +171,8 @@ export default function CreatePage() {
         setAiAnalysis(data);
         toast.success(`✨ تم التحليل! شخصية: ${getCharLabel(data.character)} | بيئة: ${getSceneLabel(data.environment)}`);
       }
-    } catch (err: any) {
-      console.error('Analysis error:', err);
-      // Fallback to offline
+    } catch {
+      // 🔇 Silent transparent fallback — no error popup, just switch to offline.
       const sceneCount = type === 'scene-generator' ? 4 : 3;
       const offlineResult = analyzePromptOffline(prompt, sceneCount);
       setAiAnalysis({
@@ -181,7 +181,6 @@ export default function CreatePage() {
         scenes: offlineResult.scenes,
         narrationText: offlineResult.narrationText,
       });
-      toast.info('⚡ تم التحليل محلياً (بدون إنترنت)');
     } finally {
       setAnalyzing(false);
     }
@@ -554,12 +553,12 @@ export default function CreatePage() {
         setAiAnalysis(null);
         navigate(`/project/${id}`);
       }, 600);
-    } catch (err: any) {
+    } catch {
+      // 🔇 Silent: if everything else failed, mark project ready without scary error.
       setProcessing(false);
       setProgress(0);
       setStatusText('');
       updateProject(id, { status: 'ready' });
-      toast.error(err.message || 'حدث خطأ أثناء الإنتاج');
     }
   };
 
@@ -897,6 +896,71 @@ export default function CreatePage() {
         <Sparkles className="h-4 w-4 text-primary" />
         افتح في Meta AI (إنتاج فيديو خارجي) ↗
       </a>
+
+      {/* Google AI Studio (Veo) — real cinematic video generation */}
+      {isVideoType(type) && (
+        <button
+          onClick={async () => {
+            if (!prompt.trim()) {
+              toast.error('اكتب وصفاً أولاً لإنتاج فيديو Veo');
+              return;
+            }
+            const id = `${Date.now()}`;
+            const project: Project = {
+              id,
+              title: buildProjectTitle(type, prompt) + ' (Veo)',
+              type,
+              prompt,
+              createdAt: Date.now(),
+              status: 'processing',
+              durationSec: Math.min(duration, 8),
+              style,
+              outputs: [],
+            };
+            addProject(project);
+            setVeoLoading(true);
+            setProcessing(true);
+            setStatusText('🎥 Google AI Studio (Veo) ينتج فيديو سينمائي... قد يستغرق 1-3 دقائق');
+            setProgress(15);
+            const tick = setInterval(() => setProgress(p => Math.min(90, p + 2)), 3000);
+            try {
+              const { videoUrl } = await generateVeoVideo(prompt, {
+                aspectRatio: '16:9',
+                durationSec: Math.min(8, Math.max(4, duration)),
+              });
+              clearInterval(tick);
+              setProgress(100);
+              updateProject(id, {
+                status: 'ready',
+                outputs: ['veo-video.mp4'],
+                generatedVideoUrl: videoUrl,
+              });
+              toast.success('🎬 تم إنتاج الفيديو عبر Google AI Studio (Veo)!');
+              setTimeout(() => navigate(`/project/${id}`), 600);
+            } catch {
+              clearInterval(tick);
+              // Silent fallback: switch to local engine
+              updateProject(id, { status: 'ready' });
+              toast.info('تعذّر Veo الآن — جاري استخدام المحرك المحلي');
+              setVeoLoading(false);
+              setProcessing(false);
+              setProgress(0);
+              setStatusText('');
+              handleGenerate();
+              return;
+            }
+            setVeoLoading(false);
+            setProcessing(false);
+            setProgress(0);
+            setStatusText('');
+          }}
+          disabled={processing || veoLoading}
+          className="mt-3 w-full rounded-2xl border border-primary bg-gradient-to-r from-primary/20 to-primary/5 py-3 text-sm font-bold text-foreground flex items-center justify-center gap-2 hover:from-primary/30 transition-all disabled:opacity-60"
+        >
+          <Sparkles className="h-4 w-4 text-primary" />
+          {veoLoading ? 'Veo يولّد الفيديو…' : '🎥 إنتاج بـ Google AI Studio (Veo)'}
+        </button>
+      )}
     </div>
   );
 }

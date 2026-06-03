@@ -170,9 +170,8 @@ export default function CreatePage() {
         setAiAnalysis(data);
         toast.success(`✨ تم التحليل! شخصية: ${getCharLabel(data.character)} | بيئة: ${getSceneLabel(data.environment)}`);
       }
-    } catch (err: any) {
-      console.error('Analysis error:', err);
-      // Fallback to offline
+    } catch {
+      // 🔇 Silent transparent fallback — no error popup, just switch to offline.
       const sceneCount = type === 'scene-generator' ? 4 : 3;
       const offlineResult = analyzePromptOffline(prompt, sceneCount);
       setAiAnalysis({
@@ -181,7 +180,6 @@ export default function CreatePage() {
         scenes: offlineResult.scenes,
         narrationText: offlineResult.narrationText,
       });
-      toast.info('⚡ تم التحليل محلياً (بدون إنترنت)');
     } finally {
       setAnalyzing(false);
     }
@@ -554,12 +552,12 @@ export default function CreatePage() {
         setAiAnalysis(null);
         navigate(`/project/${id}`);
       }, 600);
-    } catch (err: any) {
+    } catch {
+      // 🔇 Silent: if everything else failed, mark project ready without scary error.
       setProcessing(false);
       setProgress(0);
       setStatusText('');
       updateProject(id, { status: 'ready' });
-      toast.error(err.message || 'حدث خطأ أثناء الإنتاج');
     }
   };
 

@@ -110,6 +110,9 @@ export default function CreatePage() {
   const [dialect, setDialect] = useState<ArabicDialect>('msa');
   const [collaborative, setCollaborative] = useState(true);
   const [veoLoading, setVeoLoading] = useState(false);
+  const [veoStage, setVeoStage] = useState<string>('');
+  const [veoAttempt, setVeoAttempt] = useState<{ n: number; total: number } | null>(null);
+  const [safeFallback, setSafeFallback] = useState(false);
 
   useEffect(() => {
     setActiveDialect(dialect);
@@ -857,6 +860,24 @@ export default function CreatePage() {
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             <span className="text-sm font-semibold text-foreground">{statusText || 'جاري الإنتاج...'}</span>
           </div>
+          {veoLoading && veoStage && (
+            <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
+              <p className="text-xs font-semibold text-primary">🎥 {veoStage}</p>
+              {veoAttempt && veoAttempt.n > 1 && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  محاولة {veoAttempt.n} من {veoAttempt.total} (إعادة تلقائية مع backoff)
+                </p>
+              )}
+            </div>
+          )}
+          {safeFallback && (
+            <div className="rounded-lg bg-orange-500/10 border border-orange-500/30 px-3 py-2 flex items-center gap-2">
+              <WifiOff className="h-3.5 w-3.5 text-orange-500" />
+              <p className="text-xs font-semibold text-orange-500">
+                وضع آمن: المحرك المحلي يكمل إنتاج الفيديو
+              </p>
+            </div>
+          )}
           <div className="w-full h-2 rounded-full bg-secondary overflow-hidden">
             <div
               className="h-full gradient-primary transition-all duration-300 rounded-full"
@@ -920,15 +941,39 @@ export default function CreatePage() {
             addProject(project);
             setVeoLoading(true);
             setProcessing(true);
-            setStatusText('🎥 Google AI Studio (Veo) ينتج فيديو سينمائي... قد يستغرق 1-3 دقائق');
-            setProgress(15);
-            const tick = setInterval(() => setProgress(p => Math.min(90, p + 2)), 3000);
+            setSafeFallback(false);
+            setStatusText('🎥 Google AI Studio (Veo) ينتج فيديو سينمائي...');
+            setProgress(8);
+            // Rotating stage labels so the user sees progress through polling
+            const stages = [
+              'إرسال الطلب إلى Veo…',
+              'تحليل المشهد وإعداد اللقطات…',
+              'توليد الإطارات الأولى…',
+              'تركيب الحركة والإضاءة…',
+              'إضافة التفاصيل السينمائية…',
+              'الإنهاء والترميز النهائي…',
+            ];
+            let stageIdx = 0;
+            setVeoStage(stages[0]);
+            const stageTick = setInterval(() => {
+              stageIdx = (stageIdx + 1) % stages.length;
+              setVeoStage(stages[stageIdx]);
+            }, 8000);
+            const tick = setInterval(() => setProgress(p => Math.min(92, p + 1.5)), 2500);
             try {
               const { videoUrl } = await generateVeoVideo(prompt, {
                 aspectRatio: '16:9',
                 durationSec: Math.min(8, Math.max(4, duration)),
+                maxAttempts: 3,
+                onAttempt: (n, total) => {
+                  setVeoAttempt({ n, total });
+                  if (n > 1) {
+                    setVeoStage(`إعادة المحاولة ${n}/${total} مع backoff تلقائي…`);
+                  }
+                },
               });
               clearInterval(tick);
+              clearInterval(stageTick);
               setProgress(100);
               updateProject(id, {
                 status: 'ready',
@@ -939,20 +984,28 @@ export default function CreatePage() {
               setTimeout(() => navigate(`/project/${id}`), 600);
             } catch {
               clearInterval(tick);
-              // Silent fallback: switch to local engine
+              clearInterval(stageTick);
+              // 🔇 Silent fallback to local engine — no error toast, just a small banner
               updateProject(id, { status: 'ready' });
-              toast.info('تعذّر Veo الآن — جاري استخدام المحرك المحلي');
+              setVeoStage('');
+              setVeoAttempt(null);
               setVeoLoading(false);
-              setProcessing(false);
-              setProgress(0);
-              setStatusText('');
-              handleGenerate();
+              setSafeFallback(true);
+              setStatusText('🎬 إكمال الإنتاج بالمحرك المحلي…');
+              setProgress(20);
+              try {
+                await handleGenerate();
+              } finally {
+                setSafeFallback(false);
+              }
               return;
             }
             setVeoLoading(false);
             setProcessing(false);
             setProgress(0);
             setStatusText('');
+            setVeoStage('');
+            setVeoAttempt(null);
           }}
           disabled={processing || veoLoading}
           className="mt-3 w-full rounded-2xl border border-primary bg-gradient-to-r from-primary/20 to-primary/5 py-3 text-sm font-bold text-foreground flex items-center justify-center gap-2 hover:from-primary/30 transition-all disabled:opacity-60"

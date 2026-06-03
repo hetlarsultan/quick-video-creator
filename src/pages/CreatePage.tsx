@@ -865,11 +865,9 @@ export default function CreatePage() {
           {veoLoading && veoStage && (
             <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
               <p className="text-xs font-semibold text-primary">🎥 {veoStage}</p>
-              {veoAttempt && veoAttempt.n > 1 && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  محاولة {veoAttempt.n} من {veoAttempt.total} (إعادة تلقائية مع backoff)
-                </p>
-              )}
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                ⏱️ مضى {Math.floor(veoElapsed / 60)}:{String(veoElapsed % 60).padStart(2, '0')} — حد أقصى 3:00
+              </p>
             </div>
           )}
           {safeFallback && (

@@ -32,7 +32,7 @@ const RATE_KEY = 'veo_req_log';
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX = 3;
 
-function checkRateLimit(): { ok: true } | { ok: false; retryInMs: number } {
+function checkRateLimit(): { ok: boolean; retryInMs: number } {
   try {
     const now = Date.now();
     const raw = localStorage.getItem(RATE_KEY);
@@ -44,9 +44,9 @@ function checkRateLimit(): { ok: true } | { ok: false; retryInMs: number } {
     }
     recent.push(now);
     localStorage.setItem(RATE_KEY, JSON.stringify(recent));
-    return { ok: true };
+    return { ok: true, retryInMs: 0 };
   } catch {
-    return { ok: true };
+    return { ok: true, retryInMs: 0 };
   }
 }
 

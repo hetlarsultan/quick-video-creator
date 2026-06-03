@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User, Wand2, WifiOff, Wifi } from 'lucide-react';
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
-import { generateImage, generateVeoVideo } from '@/lib/ai';
+import { generateImage, generateVeoVideo, VeoCanceledError, VeoTimeoutError, VeoRateLimitError } from '@/lib/ai';
 import { generateAnimatedVideo, SceneMotion } from '@/lib/animated-video';
 import { speakText, generateSpeechBlob } from '@/lib/tts';
 import { supabase } from '@/integrations/supabase/client';
@@ -113,6 +113,8 @@ export default function CreatePage() {
   const [veoStage, setVeoStage] = useState<string>('');
   const [veoAttempt, setVeoAttempt] = useState<{ n: number; total: number } | null>(null);
   const [safeFallback, setSafeFallback] = useState(false);
+  const [veoElapsed, setVeoElapsed] = useState(0);
+  const veoAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setActiveDialect(dialect);
@@ -863,11 +865,9 @@ export default function CreatePage() {
           {veoLoading && veoStage && (
             <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
               <p className="text-xs font-semibold text-primary">🎥 {veoStage}</p>
-              {veoAttempt && veoAttempt.n > 1 && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  محاولة {veoAttempt.n} من {veoAttempt.total} (إعادة تلقائية مع backoff)
-                </p>
-              )}
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                ⏱️ مضى {Math.floor(veoElapsed / 60)}:{String(veoElapsed % 60).padStart(2, '0')} — حد أقصى 3:00
+              </p>
             </div>
           )}
           {safeFallback && (
@@ -920,6 +920,7 @@ export default function CreatePage() {
 
       {/* Google AI Studio (Veo) — real cinematic video generation */}
       {isVideoType(type) && (
+        <div className="mt-3 space-y-2">
         <button
           onClick={async () => {
             if (!prompt.trim()) {
@@ -939,41 +940,35 @@ export default function CreatePage() {
               outputs: [],
             };
             addProject(project);
+            const ctrl = new AbortController();
+            veoAbortRef.current = ctrl;
             setVeoLoading(true);
             setProcessing(true);
             setSafeFallback(false);
+            setVeoElapsed(0);
             setStatusText('🎥 Google AI Studio (Veo) ينتج فيديو سينمائي...');
             setProgress(8);
-            // Rotating stage labels so the user sees progress through polling
-            const stages = [
-              'إرسال الطلب إلى Veo…',
-              'تحليل المشهد وإعداد اللقطات…',
-              'توليد الإطارات الأولى…',
-              'تركيب الحركة والإضاءة…',
-              'إضافة التفاصيل السينمائية…',
-              'الإنهاء والترميز النهائي…',
-            ];
-            let stageIdx = 0;
-            setVeoStage(stages[0]);
-            const stageTick = setInterval(() => {
-              stageIdx = (stageIdx + 1) % stages.length;
-              setVeoStage(stages[stageIdx]);
-            }, 8000);
-            const tick = setInterval(() => setProgress(p => Math.min(92, p + 1.5)), 2500);
+            setVeoStage('إرسال الطلب إلى Veo…');
+            const elapsedTick = setInterval(() => setVeoElapsed(e => e + 1), 1000);
+            // Soft progress: nudge up while polling, capped at 92%
+            const tick = setInterval(() => setProgress(p => Math.min(92, p + 1.2)), 2500);
             try {
               const { videoUrl } = await generateVeoVideo(prompt, {
                 aspectRatio: '16:9',
                 durationSec: Math.min(8, Math.max(4, duration)),
-                maxAttempts: 3,
-                onAttempt: (n, total) => {
-                  setVeoAttempt({ n, total });
-                  if (n > 1) {
-                    setVeoStage(`إعادة المحاولة ${n}/${total} مع backoff تلقائي…`);
+                totalTimeoutMs: 180_000, // 3-minute hard cap
+                pollIntervalMs: 5_000,
+                signal: ctrl.signal,
+                onProgress: (p) => {
+                  // 🔄 Dynamic stage straight from Veo's polling state
+                  setVeoStage(p.stage);
+                  if (typeof p.progressPct === 'number') {
+                    setProgress(Math.max(10, Math.min(95, p.progressPct)));
                   }
                 },
               });
               clearInterval(tick);
-              clearInterval(stageTick);
+              clearInterval(elapsedTick);
               setProgress(100);
               updateProject(id, {
                 status: 'ready',
@@ -982,9 +977,41 @@ export default function CreatePage() {
               });
               toast.success('🎬 تم إنتاج الفيديو عبر Google AI Studio (Veo)!');
               setTimeout(() => navigate(`/project/${id}`), 600);
-            } catch {
+            } catch (err) {
               clearInterval(tick);
-              clearInterval(stageTick);
+              clearInterval(elapsedTick);
+              veoAbortRef.current = null;
+              // 🛑 User canceled — clean exit, no fallback
+              if (err instanceof VeoCanceledError) {
+                updateProject(id, { status: 'ready' });
+                setVeoStage('');
+                setVeoAttempt(null);
+                setVeoLoading(false);
+                setProcessing(false);
+                setProgress(0);
+                setStatusText('');
+                setVeoElapsed(0);
+                toast.info('تم إلغاء إنتاج Veo');
+                return;
+              }
+              // ⏱️ Hit hard timeout
+              if (err instanceof VeoTimeoutError) {
+                toast.info('انتهت المهلة — التحويل للمحرك المحلي');
+              }
+              // 🚦 Rate-limited
+              if (err instanceof VeoRateLimitError) {
+                const secs = Math.ceil(err.retryInMs / 1000);
+                updateProject(id, { status: 'ready' });
+                setVeoStage('');
+                setVeoAttempt(null);
+                setVeoLoading(false);
+                setProcessing(false);
+                setProgress(0);
+                setStatusText('');
+                setVeoElapsed(0);
+                toast.info(`تم تجاوز حد الطلبات — أعد المحاولة بعد ${secs} ثانية`);
+                return;
+              }
               // 🔇 Silent fallback to local engine — no error toast, just a small banner
               updateProject(id, { status: 'ready' });
               setVeoStage('');
@@ -993,6 +1020,7 @@ export default function CreatePage() {
               setSafeFallback(true);
               setStatusText('🎬 إكمال الإنتاج بالمحرك المحلي…');
               setProgress(20);
+              setVeoElapsed(0);
               try {
                 await handleGenerate();
               } finally {
@@ -1000,12 +1028,14 @@ export default function CreatePage() {
               }
               return;
             }
+            veoAbortRef.current = null;
             setVeoLoading(false);
             setProcessing(false);
             setProgress(0);
             setStatusText('');
             setVeoStage('');
             setVeoAttempt(null);
+            setVeoElapsed(0);
           }}
           disabled={processing || veoLoading}
           className="mt-3 w-full rounded-2xl border border-primary bg-gradient-to-r from-primary/20 to-primary/5 py-3 text-sm font-bold text-foreground flex items-center justify-center gap-2 hover:from-primary/30 transition-all disabled:opacity-60"
@@ -1013,6 +1043,15 @@ export default function CreatePage() {
           <Sparkles className="h-4 w-4 text-primary" />
           {veoLoading ? 'Veo يولّد الفيديو…' : '🎥 إنتاج بـ Google AI Studio (Veo)'}
         </button>
+        {veoLoading && (
+          <button
+            onClick={() => veoAbortRef.current?.abort()}
+            className="w-full rounded-2xl border border-destructive/40 bg-destructive/10 py-2.5 text-sm font-semibold text-destructive flex items-center justify-center gap-2 hover:bg-destructive/20 transition-all"
+          >
+            ⏹️ إلغاء Veo وإيقاف الطلب
+          </button>
+        )}
+        </div>
       )}
     </div>
   );

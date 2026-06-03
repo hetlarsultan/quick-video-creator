@@ -32,17 +32,37 @@ export interface VeoVideoResult {
  */
 export async function generateVeoVideo(
   prompt: string,
-  opts?: { aspectRatio?: '16:9' | '9:16'; durationSec?: number }
+  opts?: {
+    aspectRatio?: '16:9' | '9:16';
+    durationSec?: number;
+    maxAttempts?: number;
+    onAttempt?: (attempt: number, total: number) => void;
+  }
 ): Promise<VeoVideoResult> {
-  const { data, error } = await supabase.functions.invoke('generate-video-veo', {
-    body: {
-      prompt,
-      aspectRatio: opts?.aspectRatio || '16:9',
-      durationSec: opts?.durationSec || 8,
-    },
-  });
-  if (error) throw new Error(error.message || 'veo_failed');
-  if (data?.error) throw new Error(data.error);
-  if (!data?.videoUrl) throw new Error('veo_no_video');
-  return { videoUrl: data.videoUrl, mimeType: data.mimeType || 'video/mp4' };
+  const maxAttempts = opts?.maxAttempts ?? 3;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    opts?.onAttempt?.(attempt, maxAttempts);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-video-veo', {
+        body: {
+          prompt,
+          aspectRatio: opts?.aspectRatio || '16:9',
+          durationSec: opts?.durationSec || 8,
+        },
+      });
+      if (error) throw new Error('veo_invoke');
+      if (data?.error || data?.fallback) throw new Error('veo_busy');
+      if (!data?.videoUrl) throw new Error('veo_no_video');
+      return { videoUrl: data.videoUrl, mimeType: data.mimeType || 'video/mp4' };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 1s, 2s, 4s … (silent — no console noise)
+        const wait = 1000 * Math.pow(2, attempt - 1);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('veo_failed');
 }

@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      veo_events: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: number
+          kind: string
+          payload: Json
+          project_id: string | null
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: number
+          kind: string
+          payload?: Json
+          project_id?: string | null
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: number
+          kind?: string
+          payload?: Json
+          project_id?: string | null
+        }
+        Relationships: []
+      }
+      veo_rate_limits: {
+        Row: {
+          client_id: string
+          id: number
+          started_at: string
+        }
+        Insert: {
+          client_id: string
+          id?: number
+          started_at?: string
+        }
+        Update: {
+          client_id?: string
+          id?: number
+          started_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

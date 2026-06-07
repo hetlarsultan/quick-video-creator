@@ -12,6 +12,7 @@ import ChatPage from "./pages/ChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ScanPage from "./pages/ScanPage";
+import LogsPage from "./pages/LogsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
               <Route path="/scan" element={<ScanPage />} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/logs" element={<LogsPage />} />
               <Route path="/project/:id" element={<ProjectDetailPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -1,6 +1,7 @@
-import { Trash2, Download, FolderOpen, Sparkles, Shield, Infinity, Info } from 'lucide-react';
+import { Trash2, Download, FolderOpen, Sparkles, Shield, Infinity, Info, ScrollText } from 'lucide-react';
 import { useProjects } from '@/lib/ProjectsContext';
 import { StatCard } from '@/components/StatCard';
+import { Link } from 'react-router-dom';
 
 export default function SettingsPage() {
   const { projects, clearProjects, stats } = useProjects();
@@ -70,6 +71,13 @@ export default function SettingsPage() {
 
       {/* Actions */}
       <h2 className="mt-6 mb-3 text-base font-bold text-foreground">إدارة البيانات</h2>
+      <Link
+        to="/logs"
+        className="w-full mb-2 flex items-center justify-center gap-2 rounded-2xl bg-card border border-border py-3 text-sm font-bold text-foreground hover:bg-accent transition-all"
+      >
+        <ScrollText className="h-4 w-4 text-primary" />
+        📜 سجل أحداث Veo
+      </Link>
       <button
         onClick={() => {
           if (confirm('هل تريد حذف جميع المشاريع المحفوظة؟ لا يمكن التراجع.')) clearProjects();

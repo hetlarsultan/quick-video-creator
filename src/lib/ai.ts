@@ -66,6 +66,65 @@ export interface VeoProgress {
   state?: string;
   progressPct?: number | null;
   elapsedMs: number;
+  etaMs?: number | null;
+}
+
+// 🆔 Stable per-device client id (no auth in this app).
+const CLIENT_ID_KEY = 'veo_client_id';
+export function getClientId(): string {
+  try {
+    let id = localStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id = (crypto as any).randomUUID?.() || `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(CLIENT_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'anon';
+  }
+}
+
+// 📝 Silent event logging — never throws into the calling flow.
+export type VeoEventKind = 'start' | 'stage' | 'cancel' | 'timeout' | 'fallback' | 'success' | 'resume' | 'rate_limited' | 'error';
+export async function logVeoEvent(kind: VeoEventKind, payload: Record<string, any> = {}, projectId?: string) {
+  try {
+    await supabase.from('veo_events').insert({
+      client_id: getClientId(),
+      project_id: projectId || null,
+      kind,
+      payload,
+    });
+  } catch {
+    // swallow — logging must never break the user flow
+  }
+}
+
+// 💾 Resume support: persist the in-flight operation for the session
+const ACTIVE_OP_KEY = 'veo_active_op';
+interface ActiveOp { operationName: string; prompt: string; startedAt: number; totalTimeoutMs: number; projectId?: string; }
+function saveActiveOp(op: ActiveOp) { try { sessionStorage.setItem(ACTIVE_OP_KEY, JSON.stringify(op)); } catch {} }
+function clearActiveOp() { try { sessionStorage.removeItem(ACTIVE_OP_KEY); } catch {} }
+export function getActiveVeoOp(): ActiveOp | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_OP_KEY);
+    if (!raw) return null;
+    const op = JSON.parse(raw) as ActiveOp;
+    if (Date.now() - op.startedAt > op.totalTimeoutMs) { clearActiveOp(); return null; }
+    return op;
+  } catch { return null; }
+}
+
+// 📈 Running average of completed Veo durations — used as ETA fallback
+const AVG_KEY = 'veo_avg_duration_ms';
+function getAvgDuration(): number {
+  try { return Number(localStorage.getItem(AVG_KEY)) || 90_000; } catch { return 90_000; }
+}
+function updateAvgDuration(sample: number) {
+  try {
+    const cur = getAvgDuration();
+    const next = Math.round(cur * 0.7 + sample * 0.3);
+    localStorage.setItem(AVG_KEY, String(next));
+  } catch {}
 }
 
 /**
@@ -82,9 +141,12 @@ export async function generateVeoVideo(
     signal?: AbortSignal;           // cancel from UI
     onProgress?: (p: VeoProgress) => void;
     skipRateLimit?: boolean;
+    projectId?: string;
+    resumeOperationName?: string;   // resume a saved op instead of starting a new one
   }
 ): Promise<VeoVideoResult> {
-  if (!opts?.skipRateLimit) {
+  // Local guard first — server-side enforced inside veo-start.
+  if (!opts?.skipRateLimit && !opts?.resumeOperationName) {
     const rl = checkRateLimit();
     if (!rl.ok) throw new VeoRateLimitError(rl.retryInMs);
   }
@@ -93,28 +155,44 @@ export async function generateVeoVideo(
   const pollIntervalMs = opts?.pollIntervalMs ?? 5_000;
   const signal = opts?.signal;
   const t0 = Date.now();
+  const samples: { t: number; pct: number }[] = [];
 
   const throwIfDone = () => {
     if (signal?.aborted) throw new VeoCanceledError();
     if (Date.now() - t0 > totalTimeoutMs) throw new VeoTimeoutError();
   };
 
-  // 1) Start operation
-  opts?.onProgress?.({ stage: 'إرسال الطلب إلى Veo…', elapsedMs: 0 });
-  throwIfDone();
-
-  const startRes = await supabase.functions.invoke('veo-start', {
-    body: {
-      prompt,
-      aspectRatio: opts?.aspectRatio || '16:9',
-      durationSec: opts?.durationSec || 8,
-    },
-  });
-  throwIfDone();
-  if (startRes.error || startRes.data?.error || !startRes.data?.operationName) {
-    throw new Error('veo_start_failed');
+  // 1) Start or resume operation
+  let operationName: string;
+  if (opts?.resumeOperationName) {
+    operationName = opts.resumeOperationName;
+    opts?.onProgress?.({ stage: 'استئناف عملية Veo…', elapsedMs: 0 });
+    logVeoEvent('resume', { operationName }, opts?.projectId);
+  } else {
+    opts?.onProgress?.({ stage: 'إرسال الطلب إلى Veo…', elapsedMs: 0 });
+    throwIfDone();
+    const startRes = await supabase.functions.invoke('veo-start', {
+      body: {
+        prompt,
+        aspectRatio: opts?.aspectRatio || '16:9',
+        durationSec: opts?.durationSec || 8,
+        clientId: getClientId(),
+      },
+    });
+    throwIfDone();
+    const sd = startRes.data || {};
+    if (sd.error === 'rate_limited') {
+      logVeoEvent('rate_limited', { source: 'server', retryInMs: sd.retryInMs }, opts?.projectId);
+      throw new VeoRateLimitError(sd.retryInMs || 30_000);
+    }
+    if (startRes.error || sd.error || !sd.operationName) {
+      logVeoEvent('error', { phase: 'start', detail: sd.error || 'invoke_failed' }, opts?.projectId);
+      throw new Error('veo_start_failed');
+    }
+    operationName = sd.operationName;
+    saveActiveOp({ operationName, prompt, startedAt: t0, totalTimeoutMs, projectId: opts?.projectId });
+    logVeoEvent('start', { operationName, aspectRatio: opts?.aspectRatio, durationSec: opts?.durationSec }, opts?.projectId);
   }
-  const operationName: string = startRes.data.operationName;
 
   // 2) Poll loop with abort + dynamic stage
   while (true) {
@@ -127,20 +205,63 @@ export async function generateVeoVideo(
     });
     throwIfDone();
 
-    const poll = await supabase.functions.invoke('veo-poll', {
-      body: { operationName },
-    });
+    // 🌐 If offline, wait for connectivity instead of failing.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      opts?.onProgress?.({ stage: 'بانتظار عودة الشبكة…', elapsedMs: Date.now() - t0 });
+      await new Promise<void>((resolve, reject) => {
+        const onOnline = () => { window.removeEventListener('online', onOnline); resolve(); };
+        const onAbort = () => { window.removeEventListener('online', onOnline); reject(new VeoCanceledError()); };
+        window.addEventListener('online', onOnline, { once: true });
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      });
+      continue;
+    }
+
+    let pollData: any = null;
+    try {
+      const poll = await supabase.functions.invoke('veo-poll', { body: { operationName } });
+      pollData = poll.data;
+      if (poll.error) throw poll.error;
+    } catch {
+      // Transient network/edge error → keep polling silently
+      opts?.onProgress?.({ stage: 'إعادة الاتصال بـ Veo…', elapsedMs: Date.now() - t0 });
+      continue;
+    }
     throwIfDone();
-    const d = poll.data || {};
+    const d = pollData || {};
     const elapsedMs = Date.now() - t0;
+    const pct = typeof d.progressPct === 'number' ? d.progressPct : null;
+    let etaMs: number | null = null;
+    if (pct !== null) {
+      samples.push({ t: elapsedMs, pct });
+      if (samples.length >= 2) {
+        const first = samples[0];
+        const last = samples[samples.length - 1];
+        const dPct = last.pct - first.pct;
+        const dT = last.t - first.t;
+        if (dPct > 0 && dT > 0) etaMs = Math.max(0, ((100 - last.pct) / dPct) * dT);
+      }
+    }
+    if (etaMs === null) {
+      const avg = getAvgDuration();
+      etaMs = Math.max(0, avg - elapsedMs);
+    }
+    if (d.stage) logVeoEvent('stage', { stage: d.stage, state: d.state, pct, etaMs }, opts?.projectId);
     opts?.onProgress?.({
       stage: d.stage || 'جاري المعالجة…',
       state: d.state,
-      progressPct: d.progressPct ?? null,
+      progressPct: pct,
       elapsedMs,
+      etaMs,
     });
     if (d.done) {
-      if (d.error || !d.videoUrl) throw new Error('veo_no_video');
+      clearActiveOp();
+      if (d.error || !d.videoUrl) {
+        logVeoEvent('error', { phase: 'poll_done', detail: d.error || 'no_video' }, opts?.projectId);
+        throw new Error('veo_no_video');
+      }
+      updateAvgDuration(elapsedMs);
+      logVeoEvent('success', { elapsedMs }, opts?.projectId);
       return { videoUrl: d.videoUrl, mimeType: d.mimeType || 'video/mp4' };
     }
   }

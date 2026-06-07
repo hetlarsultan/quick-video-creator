@@ -4,7 +4,7 @@ import { useProjects } from '@/lib/ProjectsContext';
 import { toast } from 'sonner';
 import { useState, useRef } from 'react';
 import { speakText } from '@/lib/tts';
-import { convertWebmToMp4, downloadBlobAsFile } from '@/lib/video-export';
+import { convertWebmToMp4, downloadBlobAsFile, mergeAudioWithVideo } from '@/lib/video-export';
 
 const typeLabel: Record<string, string> = {
   'text-to-video': '🎬 نص ➜ فيديو',
@@ -50,6 +50,11 @@ export default function ProjectDetailPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [exportingMp4, setExportingMp4] = useState(false);
   const [mp4Progress, setMp4Progress] = useState(0);
+  const [mergedUrl, setMergedUrl] = useState<string | null>(null);
+  const [mergedBlob, setMergedBlob] = useState<Blob | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState(0);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   if (!project) {
     return (
@@ -153,6 +158,32 @@ export default function ProjectDetailPage() {
     } finally {
       setExportingMp4(false);
       setMp4Progress(0);
+    }
+  };
+
+  const handleAudioFile = async (file: File) => {
+    if (!hasVideo) return;
+    setMerging(true);
+    setMergeProgress(0);
+    toast.info('🔊 جاري دمج الصوت مع الفيديو…');
+    try {
+      const blob = await mergeAudioWithVideo(project.generatedVideoUrl!, file, (pct) => setMergeProgress(pct));
+      const url = URL.createObjectURL(blob);
+      setMergedBlob(blob);
+      setMergedUrl(url);
+      toast.success('✅ تم الدمج! يمكنك المعاينة والتحميل.');
+    } catch (e: any) {
+      toast.error(e?.message || 'فشل دمج الصوت');
+    } finally {
+      setMerging(false);
+      setMergeProgress(0);
+    }
+  };
+
+  const handleDownloadMerged = () => {
+    if (mergedBlob) {
+      downloadBlobAsFile(mergedBlob, `${project.title}-merged.mp4`);
+      toast.success('تم تنزيل الفيديو المدموج!');
     }
   };
 
@@ -272,15 +303,56 @@ export default function ProjectDetailPage() {
           onClick={() => setPreviewOpen(false)}
         >
           {hasVideo ? (
-            <video
-              src={project.generatedVideoUrl}
-              className="max-w-full max-h-full rounded-lg"
-              controls
-              autoPlay
-              loop
-              playsInline
-              onClick={(e) => e.stopPropagation()}
-            />
+            <div className="flex flex-col items-center gap-3 max-h-full" onClick={(e) => e.stopPropagation()}>
+              <video
+                src={mergedUrl || project.generatedVideoUrl}
+                className="max-w-full max-h-[60vh] rounded-lg"
+                controls
+                autoPlay
+                loop
+                playsInline
+              />
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleAudioFile(f);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={merging}
+                  className="rounded-full bg-primary/80 text-primary-foreground px-4 py-2 text-xs font-bold flex items-center gap-2 disabled:opacity-60"
+                >
+                  <Volume2 className="h-3.5 w-3.5" />
+                  {merging ? `دمج الصوت ${mergeProgress}%` : '🔊 دمج صوت من جهازك'}
+                </button>
+                {mergedBlob && (
+                  <button
+                    onClick={handleDownloadMerged}
+                    className="rounded-full bg-success text-primary-foreground px-4 py-2 text-xs font-bold flex items-center gap-2"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    ⬇️ تحميل المدموج (MP4)
+                  </button>
+                )}
+                <button
+                  onClick={handleDownloadAll}
+                  className="rounded-full bg-white/20 text-white px-4 py-2 text-xs font-bold flex items-center gap-2"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  تحميل الأصلي
+                </button>
+              </div>
+              {mergedUrl && (
+                <p className="text-[11px] text-white/70">🎧 معاينة النسخة المدموجة</p>
+              )}
+            </div>
           ) : previewImage ? (
             <img
               src={previewImage}
@@ -294,7 +366,7 @@ export default function ProjectDetailPage() {
           >
             إغلاق ✕
           </button>
-          <button
+          {!hasVideo && <button
             className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white bg-primary/80 rounded-full px-6 py-2 text-sm font-semibold flex items-center gap-2"
             onClick={(e) => {
               e.stopPropagation();
@@ -303,7 +375,7 @@ export default function ProjectDetailPage() {
           >
             <Download className="h-4 w-4" />
             تنزيل
-          </button>
+          </button>}
         </div>
       )}
 

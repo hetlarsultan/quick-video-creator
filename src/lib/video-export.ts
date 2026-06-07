@@ -78,3 +78,62 @@ export function downloadBlobAsFile(blob: Blob, filename: string) {
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+
+/**
+ * Merge a video (webm/mp4 url or Blob) with an audio Blob using ffmpeg.wasm.
+ * Tries fast stream-copy first; falls back to re-encode if needed.
+ */
+export async function mergeAudioWithVideo(
+  videoSource: Blob | string,
+  audioBlob: Blob,
+  onProgress?: (pct: number) => void,
+): Promise<Blob> {
+  const ffmpeg = await getFFmpeg();
+  if (onProgress) {
+    ffmpeg.on('progress', ({ progress }) => onProgress(Math.round(progress * 100)));
+  }
+  const vData = await fetchFile(videoSource);
+  const aData = await fetchFile(audioBlob);
+  const vName = (typeof videoSource === 'string' && videoSource.includes('.mp4')) ? 'in.mp4' : 'in.webm';
+  // Pick extension from blob type
+  let aName = 'in_audio.bin';
+  const type = audioBlob.type || '';
+  if (type.includes('mpeg') || type.includes('mp3')) aName = 'in_audio.mp3';
+  else if (type.includes('wav')) aName = 'in_audio.wav';
+  else if (type.includes('ogg')) aName = 'in_audio.ogg';
+  else if (type.includes('m4a') || type.includes('mp4')) aName = 'in_audio.m4a';
+  else if (type.includes('webm')) aName = 'in_audio.webm';
+  else aName = 'in_audio.mp3';
+
+  await ffmpeg.writeFile(vName, vData);
+  await ffmpeg.writeFile(aName, aData);
+
+  // Re-encode video for broad compatibility (mp4 output is the universal choice for share/save).
+  try {
+    await ffmpeg.exec([
+      '-i', vName,
+      '-i', aName,
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-shortest',
+      'merged.mp4',
+    ]);
+  } catch (e) {
+    console.warn('ffmpeg merge encode failed, retrying with copy', e);
+    await ffmpeg.exec([
+      '-i', vName, '-i', aName,
+      '-c', 'copy', '-shortest',
+      'merged.mp4',
+    ]);
+  }
+  const data = await ffmpeg.readFile('merged.mp4');
+  const bytes = data as Uint8Array;
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buf], { type: 'video/mp4' });
+}

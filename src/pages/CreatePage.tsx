@@ -4,7 +4,7 @@ import { Video, Image, Palette, Globe, Mic, Sparkles, Play, Zap, User, Wand2, Wi
 import { durationOptions, quickPrompts, styleOptions, templates } from '@/lib/data';
 import { useProjects } from '@/lib/ProjectsContext';
 import { buildProjectTitle, Project, ProjectType } from '@/lib/storage';
-import { generateImage, generateVeoVideo, VeoCanceledError, VeoTimeoutError, VeoRateLimitError } from '@/lib/ai';
+import { generateImage, generateVeoVideo, VeoCanceledError, VeoTimeoutError, VeoRateLimitError, getActiveVeoOp, logVeoEvent } from '@/lib/ai';
 import { generateAnimatedVideo, SceneMotion } from '@/lib/animated-video';
 import { speakText, generateSpeechBlob } from '@/lib/tts';
 import { supabase } from '@/integrations/supabase/client';
@@ -114,6 +114,7 @@ export default function CreatePage() {
   const [veoAttempt, setVeoAttempt] = useState<{ n: number; total: number } | null>(null);
   const [safeFallback, setSafeFallback] = useState(false);
   const [veoElapsed, setVeoElapsed] = useState(0);
+  const [veoEtaMs, setVeoEtaMs] = useState<number | null>(null);
   const veoAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -130,6 +131,58 @@ export default function CreatePage() {
       window.removeEventListener('online', goOnline);
       window.removeEventListener('offline', goOffline);
     };
+  }, []);
+
+  // 🔁 Resume an in-flight Veo operation if the page was reloaded / network dropped
+  useEffect(() => {
+    const op = getActiveVeoOp();
+    if (!op) return;
+    const ctrl = new AbortController();
+    veoAbortRef.current = ctrl;
+    setVeoLoading(true);
+    setProcessing(true);
+    setSafeFallback(false);
+    setStatusText('🎥 استئناف عملية Veo السابقة…');
+    setVeoStage('استئناف…');
+    setProgress(20);
+    const startTick = Date.now() - op.startedAt;
+    setVeoElapsed(Math.floor(startTick / 1000));
+    const elapsedTick = setInterval(() => setVeoElapsed(e => e + 1), 1000);
+    (async () => {
+      try {
+        const { videoUrl } = await generateVeoVideo(op.prompt, {
+          resumeOperationName: op.operationName,
+          totalTimeoutMs: op.totalTimeoutMs,
+          signal: ctrl.signal,
+          projectId: op.projectId,
+          onProgress: (p) => {
+            setVeoStage(p.stage);
+            setVeoEtaMs(p.etaMs ?? null);
+            if (typeof p.progressPct === 'number') setProgress(Math.max(20, Math.min(95, p.progressPct)));
+          },
+        });
+        clearInterval(elapsedTick);
+        setProgress(100);
+        if (op.projectId) {
+          updateProject(op.projectId, { status: 'ready', outputs: ['veo-video.mp4'], generatedVideoUrl: videoUrl });
+          toast.success('✅ اكتمل استئناف Veo!');
+          setTimeout(() => navigate(`/project/${op.projectId}`), 500);
+        }
+      } catch {
+        clearInterval(elapsedTick);
+        // silent
+      } finally {
+        setVeoLoading(false);
+        setProcessing(false);
+        setProgress(0);
+        setVeoStage('');
+        setVeoElapsed(0);
+        setVeoEtaMs(null);
+        veoAbortRef.current = null;
+      }
+    })();
+    return () => { try { ctrl.abort(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const effectiveOffline = forceOffline || !isOnline;
@@ -866,7 +919,11 @@ export default function CreatePage() {
             <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
               <p className="text-xs font-semibold text-primary">🎥 {veoStage}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                ⏱️ مضى {Math.floor(veoElapsed / 60)}:{String(veoElapsed % 60).padStart(2, '0')} — حد أقصى 3:00
+                ⏱️ مضى {Math.floor(veoElapsed / 60)}:{String(veoElapsed % 60).padStart(2, '0')}
+                {veoEtaMs !== null && veoEtaMs > 1000 && (
+                  <> — متبقّي ~{Math.floor(veoEtaMs / 60000)}:{String(Math.floor((veoEtaMs % 60000) / 1000)).padStart(2, '0')}</>
+                )}
+                {' '}— حد أقصى 3:00
               </p>
             </div>
           )}
@@ -946,6 +1003,7 @@ export default function CreatePage() {
             setProcessing(true);
             setSafeFallback(false);
             setVeoElapsed(0);
+            setVeoEtaMs(null);
             setStatusText('🎥 Google AI Studio (Veo) ينتج فيديو سينمائي...');
             setProgress(8);
             setVeoStage('إرسال الطلب إلى Veo…');
@@ -959,9 +1017,11 @@ export default function CreatePage() {
                 totalTimeoutMs: 180_000, // 3-minute hard cap
                 pollIntervalMs: 5_000,
                 signal: ctrl.signal,
+                projectId: id,
                 onProgress: (p) => {
                   // 🔄 Dynamic stage straight from Veo's polling state
                   setVeoStage(p.stage);
+                  setVeoEtaMs(p.etaMs ?? null);
                   if (typeof p.progressPct === 'number') {
                     setProgress(Math.max(10, Math.min(95, p.progressPct)));
                   }
@@ -983,6 +1043,7 @@ export default function CreatePage() {
               veoAbortRef.current = null;
               // 🛑 User canceled — clean exit, no fallback
               if (err instanceof VeoCanceledError) {
+                logVeoEvent('cancel', {}, id);
                 updateProject(id, { status: 'ready' });
                 setVeoStage('');
                 setVeoAttempt(null);
@@ -996,6 +1057,7 @@ export default function CreatePage() {
               }
               // ⏱️ Hit hard timeout
               if (err instanceof VeoTimeoutError) {
+                logVeoEvent('timeout', {}, id);
                 toast.info('انتهت المهلة — التحويل للمحرك المحلي');
               }
               // 🚦 Rate-limited
@@ -1013,6 +1075,7 @@ export default function CreatePage() {
                 return;
               }
               // 🔇 Silent fallback to local engine — no error toast, just a small banner
+              logVeoEvent('fallback', { reason: (err as Error)?.message || 'unknown' }, id);
               updateProject(id, { status: 'ready' });
               setVeoStage('');
               setVeoAttempt(null);

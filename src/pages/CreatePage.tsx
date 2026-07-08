@@ -17,6 +17,12 @@ import { generateOfflineSceneImages } from '@/lib/offline/image-generator';
 import { generateCharacterAudioBlob, CharacterVoice, getVoiceOptions, VoiceGender } from '@/lib/offline/voice-engine';
 import { DIALECT_PROFILES, type ArabicDialect } from '@/lib/offline/dialects';
 import { setActiveDialect } from '@/lib/offline/voice-engine';
+import {
+  CHARACTER_PRESETS,
+  getSavedCharacterPreset,
+  saveCharacterPreset,
+  type CharacterPresetId,
+} from '@/lib/offline/character-presets';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
   { label: 'نص ➜ فيديو', value: 'text-to-video', icon: Video, emoji: '🎬' },
@@ -41,7 +47,25 @@ const sceneOptions = [
   { label: 'مدينة ليلية', value: 'night-city', emoji: '🌃' },
   { label: 'فضاء', value: 'space', emoji: '🚀' },
   { label: 'تحت الماء', value: 'underwater', emoji: '🌊' },
+  { label: 'غروب متحرك', value: 'sunset', emoji: '🌅' },
+  { label: 'شاطئ متحرك', value: 'beach', emoji: '🏖️' },
+  { label: 'جبال متحركة', value: 'mountain', emoji: '⛰️' },
+  { label: 'ثلوج متحركة', value: 'snow', emoji: '❄️' },
+  { label: 'مطر وعاصفة', value: 'rain', emoji: '🌧️' },
+  { label: 'صحراء', value: 'desert', emoji: '🏜️' },
+  { label: 'غابة', value: 'forest', emoji: '🌲' },
 ];
+
+const PREFS_KEY = 'agon_create_prefs';
+function loadPrefs(): { dialect?: ArabicDialect; character?: string; scene?: string; narratorVoice?: VoiceGender } {
+  try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; }
+}
+function savePrefs(p: Record<string, unknown>) {
+  try {
+    const cur = loadPrefs();
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...cur, ...p }));
+  } catch {}
+}
 
 function buildSinglePrompt(type: ProjectType, prompt: string, style: string, character: string, scene: string): string {
   let aiPrompt = `Create a high quality image: ${prompt}`;

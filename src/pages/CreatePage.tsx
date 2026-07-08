@@ -773,7 +773,29 @@ export default function CreatePage() {
           <h2 className="mt-5 mb-2 text-base font-bold text-foreground flex items-center gap-1.5">
             <User className="h-4 w-4 text-primary" /> الشخصيات والبيئة
           </h2>
-          
+
+          {/* Saved character presets */}
+          <label className="text-sm text-muted-foreground mb-2 block">قوالب الشخصية المحفوظة</label>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {CHARACTER_PRESETS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => applyCharacterPreset(p.id)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${p.id === characterPreset ? 'gradient-primary text-primary-foreground glow-primary' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+              >
+                <span className="text-base">{p.emoji}</span> {p.label}
+              </button>
+            ))}
+            {characterPreset && (
+              <button
+                onClick={() => { setCharacterPreset(null); saveCharacterPreset(null); }}
+                className="rounded-xl px-3 py-2 text-xs font-semibold bg-secondary text-muted-foreground border border-border hover:bg-accent"
+              >
+                ✕ إلغاء القالب
+              </button>
+            )}
+          </div>
+
           <label className="text-sm text-muted-foreground mb-2 block">نوع الشخصية</label>
           <div className="flex gap-2 flex-wrap mb-3">
             {characterOptions.map(c => (

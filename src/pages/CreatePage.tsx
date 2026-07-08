@@ -17,6 +17,12 @@ import { generateOfflineSceneImages } from '@/lib/offline/image-generator';
 import { generateCharacterAudioBlob, CharacterVoice, getVoiceOptions, VoiceGender } from '@/lib/offline/voice-engine';
 import { DIALECT_PROFILES, type ArabicDialect } from '@/lib/offline/dialects';
 import { setActiveDialect } from '@/lib/offline/voice-engine';
+import {
+  CHARACTER_PRESETS,
+  getSavedCharacterPreset,
+  saveCharacterPreset,
+  type CharacterPresetId,
+} from '@/lib/offline/character-presets';
 
 const typeOptions: { label: string; value: ProjectType; icon: React.ElementType; emoji: string }[] = [
   { label: 'نص ➜ فيديو', value: 'text-to-video', icon: Video, emoji: '🎬' },
@@ -41,7 +47,25 @@ const sceneOptions = [
   { label: 'مدينة ليلية', value: 'night-city', emoji: '🌃' },
   { label: 'فضاء', value: 'space', emoji: '🚀' },
   { label: 'تحت الماء', value: 'underwater', emoji: '🌊' },
+  { label: 'غروب متحرك', value: 'sunset', emoji: '🌅' },
+  { label: 'شاطئ متحرك', value: 'beach', emoji: '🏖️' },
+  { label: 'جبال متحركة', value: 'mountain', emoji: '⛰️' },
+  { label: 'ثلوج متحركة', value: 'snow', emoji: '❄️' },
+  { label: 'مطر وعاصفة', value: 'rain', emoji: '🌧️' },
+  { label: 'صحراء', value: 'desert', emoji: '🏜️' },
+  { label: 'غابة', value: 'forest', emoji: '🌲' },
 ];
+
+const PREFS_KEY = 'agon_create_prefs';
+function loadPrefs(): { dialect?: ArabicDialect; character?: string; scene?: string; narratorVoice?: VoiceGender } {
+  try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; }
+}
+function savePrefs(p: Record<string, unknown>) {
+  try {
+    const cur = loadPrefs();
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...cur, ...p }));
+  } catch {}
+}
 
 function buildSinglePrompt(type: ProjectType, prompt: string, style: string, character: string, scene: string): string {
   let aiPrompt = `Create a high quality image: ${prompt}`;
@@ -106,8 +130,9 @@ export default function CreatePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [forceOffline, setForceOffline] = useState(false);
-  const [narratorVoice, setNarratorVoice] = useState<VoiceGender>('male');
-  const [dialect, setDialect] = useState<ArabicDialect>('msa');
+  const [narratorVoice, setNarratorVoice] = useState<VoiceGender>(() => (loadPrefs().narratorVoice as VoiceGender) || 'male');
+  const [dialect, setDialect] = useState<ArabicDialect>(() => (loadPrefs().dialect as ArabicDialect) || 'msa');
+  const [characterPreset, setCharacterPreset] = useState<CharacterPresetId | null>(() => getSavedCharacterPreset());
   const [collaborative, setCollaborative] = useState(true);
   const [veoLoading, setVeoLoading] = useState(false);
   const [veoStage, setVeoStage] = useState<string>('');
@@ -119,7 +144,32 @@ export default function CreatePage() {
 
   useEffect(() => {
     setActiveDialect(dialect);
+    savePrefs({ dialect });
   }, [dialect]);
+
+  // Persist visual selections
+  useEffect(() => { savePrefs({ character }); }, [character]);
+  useEffect(() => { savePrefs({ scene }); }, [scene]);
+  useEffect(() => { savePrefs({ narratorVoice }); }, [narratorVoice]);
+
+  // Restore saved character/scene once on mount (after preset resolution)
+  useEffect(() => {
+    const p = loadPrefs();
+    if (p.character && character === 'auto') setCharacter(p.character);
+    if (p.scene && scene === 'auto') setScene(p.scene);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply a character preset (young-man / girl / elder / man / woman)
+  const applyCharacterPreset = (id: CharacterPresetId) => {
+    const preset = CHARACTER_PRESETS.find(p => p.id === id);
+    if (!preset) return;
+    setCharacterPreset(id);
+    setCharacter(preset.character);
+    setNarratorVoice(preset.voice);
+    saveCharacterPreset(id);
+    toast.success(`تم حفظ الشخصية: ${preset.emoji} ${preset.label}`);
+  };
 
   // Listen to online/offline status
   useEffect(() => {
@@ -723,7 +773,29 @@ export default function CreatePage() {
           <h2 className="mt-5 mb-2 text-base font-bold text-foreground flex items-center gap-1.5">
             <User className="h-4 w-4 text-primary" /> الشخصيات والبيئة
           </h2>
-          
+
+          {/* Saved character presets */}
+          <label className="text-sm text-muted-foreground mb-2 block">قوالب الشخصية المحفوظة</label>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {CHARACTER_PRESETS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => applyCharacterPreset(p.id)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all flex items-center gap-1 ${p.id === characterPreset ? 'gradient-primary text-primary-foreground glow-primary' : 'bg-card text-foreground border border-border hover:bg-accent'}`}
+              >
+                <span className="text-base">{p.emoji}</span> {p.label}
+              </button>
+            ))}
+            {characterPreset && (
+              <button
+                onClick={() => { setCharacterPreset(null); saveCharacterPreset(null); }}
+                className="rounded-xl px-3 py-2 text-xs font-semibold bg-secondary text-muted-foreground border border-border hover:bg-accent"
+              >
+                ✕ إلغاء القالب
+              </button>
+            )}
+          </div>
+
           <label className="text-sm text-muted-foreground mb-2 block">نوع الشخصية</label>
           <div className="flex gap-2 flex-wrap mb-3">
             {characterOptions.map(c => (

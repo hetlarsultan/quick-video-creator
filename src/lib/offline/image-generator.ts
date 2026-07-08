@@ -23,6 +23,12 @@ const PALETTES: Record<string, { bg: string[]; accent: string; ground: string }>
   'forest': { bg: ['#013220', '#024a2e', '#1a472a'], accent: '#adff2f', ground: '#0a3a1a' },
   'school': { bg: ['#f0f0e8', '#e0e0d0', '#d0d0c0'], accent: '#4169e1', ground: '#808070' },
   'park': { bg: ['#87ceeb', '#90ee90', '#3cb371'], accent: '#ff69b4', ground: '#228b22' },
+  // 🌅 new animated environments
+  'sunset':   { bg: ['#ff9966', '#ff5e62', '#3a1c71'], accent: '#ffd27a', ground: '#4a1e3a' },
+  'beach':    { bg: ['#87ceeb', '#ffe4b5', '#f4d19b'], accent: '#00c8ff', ground: '#e6c98b' },
+  'mountain': { bg: ['#a1c4fd', '#c2e9fb', '#e0e0e0'], accent: '#ffffff', ground: '#6b7280' },
+  'snow':     { bg: ['#dfe9f3', '#ffffff', '#c9d6ff'], accent: '#a7d8ff', ground: '#eef4fb' },
+  'rain':     { bg: ['#2c3e50', '#34495e', '#1c2833'], accent: '#4fc3f7', ground: '#1c2833' },
 };
 
 function getRandomBetween(min: number, max: number) {
@@ -118,6 +124,67 @@ function drawWater(ctx: CanvasRenderingContext2D, w: number, h: number) {
     ctx.fillStyle = '#aaddff';
     ctx.fill();
     ctx.restore();
+  }
+}
+
+function drawSun(ctx: CanvasRenderingContext2D, w: number, h: number, color: string) {
+  const cx = w * 0.5, cy = h * 0.55, r = w * 0.14;
+  const glow = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 2.5);
+  glow.addColorStop(0, color);
+  glow.addColorStop(1, 'transparent');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff2c8';
+  ctx.fill();
+}
+
+function drawSnowFlakes(ctx: CanvasRenderingContext2D, w: number, h: number, count: number) {
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h;
+    const r = Math.random() * 3 + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.6 + 0.4})`;
+    ctx.fill();
+  }
+}
+
+function drawRain(ctx: CanvasRenderingContext2D, w: number, h: number, count: number) {
+  ctx.strokeStyle = 'rgba(180,220,255,0.55)';
+  ctx.lineWidth = 1.4;
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 6, y + 18);
+    ctx.stroke();
+  }
+}
+
+function drawMountains(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const peaks = 5;
+  for (let i = 0; i < peaks; i++) {
+    const px = (w / peaks) * i + Math.random() * 60;
+    const ph = getRandomBetween(h * 0.25, h * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(px - 180, h * 0.7);
+    ctx.lineTo(px, h * 0.7 - ph);
+    ctx.lineTo(px + 180, h * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = `hsl(220, 15%, ${25 + Math.random() * 15}%)`;
+    ctx.fill();
+    // Snow cap
+    ctx.beginPath();
+    ctx.moveTo(px - 40, h * 0.7 - ph + 60);
+    ctx.lineTo(px, h * 0.7 - ph);
+    ctx.lineTo(px + 40, h * 0.7 - ph + 60);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
   }
 }
 
@@ -290,6 +357,31 @@ export function generateOfflineImage(config: DrawConfig): string {
       // Door
       ctx.fillStyle = '#6b3a20';
       ctx.fillRect(W * 0.7, H * 0.35, W * 0.12, H * 0.35);
+      break;
+    case 'sunset':
+      drawSun(ctx, W, H, 'rgba(255,180,90,0.55)');
+      drawGround(ctx, W, H, palette.ground);
+      drawMountains(ctx, W, H);
+      break;
+    case 'beach':
+      drawGround(ctx, W, H, palette.ground);
+      // Ocean strip
+      ctx.fillStyle = '#1e88e5';
+      ctx.fillRect(0, H * 0.55, W, H * 0.15);
+      drawSun(ctx, W, H, 'rgba(255,220,140,0.4)');
+      break;
+    case 'mountain':
+      drawGround(ctx, W, H, palette.ground);
+      drawMountains(ctx, W, H);
+      break;
+    case 'snow':
+      drawGround(ctx, W, H, palette.ground);
+      drawMountains(ctx, W, H);
+      drawSnowFlakes(ctx, W, H, 220);
+      break;
+    case 'rain':
+      drawBuildings(ctx, W, H);
+      drawRain(ctx, W, H, 260);
       break;
     default:
       drawGround(ctx, W, H, palette.ground);

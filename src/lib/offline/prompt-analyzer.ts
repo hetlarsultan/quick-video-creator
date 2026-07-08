@@ -55,6 +55,11 @@ const ENVIRONMENT_KEYWORDS: Record<string, string> = {
   'صحراء': 'desert', 'رمل': 'desert',
   'مدرسة': 'school', 'فصل': 'school',
   'حديقة عامة': 'park', 'ملعب': 'park',
+  'غروب': 'sunset', 'شروق': 'sunset', 'مغرب': 'sunset',
+  'شاطئ': 'beach', 'ساحل': 'beach', 'رمال البحر': 'beach',
+  'جبل': 'mountain', 'جبال': 'mountain', 'قمة': 'mountain',
+  'ثلج': 'snow', 'ثلوج': 'snow', 'شتاء': 'snow',
+  'مطر': 'rain', 'أمطار': 'rain', 'عاصفة': 'rain',
 };
 
 const CHARACTER_KEYWORDS: Record<string, string> = {

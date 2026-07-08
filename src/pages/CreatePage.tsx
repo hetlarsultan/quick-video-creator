@@ -130,8 +130,9 @@ export default function CreatePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [forceOffline, setForceOffline] = useState(false);
-  const [narratorVoice, setNarratorVoice] = useState<VoiceGender>('male');
-  const [dialect, setDialect] = useState<ArabicDialect>('msa');
+  const [narratorVoice, setNarratorVoice] = useState<VoiceGender>(() => (loadPrefs().narratorVoice as VoiceGender) || 'male');
+  const [dialect, setDialect] = useState<ArabicDialect>(() => (loadPrefs().dialect as ArabicDialect) || 'msa');
+  const [characterPreset, setCharacterPreset] = useState<CharacterPresetId | null>(() => getSavedCharacterPreset());
   const [collaborative, setCollaborative] = useState(true);
   const [veoLoading, setVeoLoading] = useState(false);
   const [veoStage, setVeoStage] = useState<string>('');
@@ -143,7 +144,32 @@ export default function CreatePage() {
 
   useEffect(() => {
     setActiveDialect(dialect);
+    savePrefs({ dialect });
   }, [dialect]);
+
+  // Persist visual selections
+  useEffect(() => { savePrefs({ character }); }, [character]);
+  useEffect(() => { savePrefs({ scene }); }, [scene]);
+  useEffect(() => { savePrefs({ narratorVoice }); }, [narratorVoice]);
+
+  // Restore saved character/scene once on mount (after preset resolution)
+  useEffect(() => {
+    const p = loadPrefs();
+    if (p.character && character === 'auto') setCharacter(p.character);
+    if (p.scene && scene === 'auto') setScene(p.scene);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply a character preset (young-man / girl / elder / man / woman)
+  const applyCharacterPreset = (id: CharacterPresetId) => {
+    const preset = CHARACTER_PRESETS.find(p => p.id === id);
+    if (!preset) return;
+    setCharacterPreset(id);
+    setCharacter(preset.character);
+    setNarratorVoice(preset.voice);
+    saveCharacterPreset(id);
+    toast.success(`تم حفظ الشخصية: ${preset.emoji} ${preset.label}`);
+  };
 
   // Listen to online/offline status
   useEffect(() => {

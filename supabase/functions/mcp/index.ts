@@ -3,7 +3,7 @@
 // supabase function: mcp
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
 // src/lib/mcp/index.ts
-import { defineMcp } from "npm:@lovable.dev/mcp-js@0.22.2";
+import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.22.2";
 
 // src/lib/mcp/tools/analyze-prompt.ts
 import { defineTool } from "npm:@lovable.dev/mcp-js@0.22.2";
@@ -62,18 +62,18 @@ var analyze_prompt_default = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
   handler: async ({ prompt, sceneCount, type }, ctx) => {
     const started = Date.now();
-    const auth = requireAuth(ctx);
-    if ("error" in auth) {
-      return { content: [{ type: "text", text: auth.error }], isError: true };
+    const auth2 = requireAuth(ctx);
+    if ("error" in auth2) {
+      return { content: [{ type: "text", text: auth2.error }], isError: true };
     }
-    const rl = await checkRateLimit(auth.userId, "analyze_video_prompt");
+    const rl = await checkRateLimit(auth2.userId, "analyze_video_prompt");
     if (rl) {
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, sceneCount, type } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, sceneCount, type } });
       return { content: [{ type: "text", text: rl }], isError: true };
     }
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, sceneCount, type } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: "LOVABLE_API_KEY is not configured on the server." }],
         isError: true
@@ -100,7 +100,7 @@ Video type: ${type}` }
       });
       if (!res.ok) {
         const t = await res.text();
-        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: `gateway ${res.status}: ${t.slice(0, 200)}`, input: { prompt, sceneCount, type } });
+        await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: `gateway ${res.status}: ${t.slice(0, 200)}`, input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: `AI gateway error ${res.status}: ${t}` }],
           isError: true
@@ -113,19 +113,19 @@ Video type: ${type}` }
       try {
         parsed = JSON.parse(jsonStr);
       } catch {
-        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "invalid JSON from model", input: { prompt, sceneCount, type } });
+        await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "invalid JSON from model", input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: content }],
           isError: true
         };
       }
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "success", durationMs: Date.now() - started, input: { prompt, sceneCount, type } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "success", durationMs: Date.now() - started, input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }],
         structuredContent: parsed
       };
     } catch (e) {
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: e instanceof Error ? e.message : "unknown", input: { prompt, sceneCount, type } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: e instanceof Error ? e.message : "unknown", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: e instanceof Error ? e.message : "Unknown error" }],
         isError: true
@@ -148,18 +148,18 @@ var generate_image_default = defineTool2({
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
   handler: async ({ prompt, style }, ctx) => {
     const started = Date.now();
-    const auth = requireAuth(ctx);
-    if ("error" in auth) {
-      return { content: [{ type: "text", text: auth.error }], isError: true };
+    const auth2 = requireAuth(ctx);
+    if ("error" in auth2) {
+      return { content: [{ type: "text", text: auth2.error }], isError: true };
     }
-    const rl = await checkRateLimit(auth.userId, "generate_scene_image");
+    const rl = await checkRateLimit(auth2.userId, "generate_scene_image");
     if (rl) {
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, style } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "generate_scene_image", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, style } });
       return { content: [{ type: "text", text: rl }], isError: true };
     }
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
-      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, style } });
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, style } });
       return {
         content: [{ type: "text", text: "LOVABLE_API_KEY is not configured on the server." }],
         isError: true
@@ -187,7 +187,7 @@ var generate_image_default = defineTool2({
         const finishReason = data.choices?.[0]?.native_finish_reason || data.choices?.[0]?.finish_reason;
         const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         if (finishReason === "IMAGE_SAFETY" || !imageUrl) continue;
-        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "success", durationMs: Date.now() - started, input: { prompt, style, model } });
+        await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "generate_scene_image", status: "success", durationMs: Date.now() - started, input: { prompt, style, model } });
         return {
           content: [{ type: "text", text: imageUrl }],
           structuredContent: { imageUrl, model }
@@ -196,7 +196,7 @@ var generate_image_default = defineTool2({
         continue;
       }
     }
-    await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "all image models failed", input: { prompt, style } });
+    await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "all image models failed", input: { prompt, style } });
     return {
       content: [{ type: "text", text: "Could not generate image. Try a different prompt." }],
       isError: true
@@ -204,13 +204,100 @@ var generate_image_default = defineTool2({
   }
 });
 
+// src/lib/mcp/tools/build-scene-plan.ts
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.22.2";
+import { z as z3 } from "npm:zod@^4.4.3";
+var ACTIONS = ["idle", "talking", "walking", "running", "fighting", "chasing", "emotional", "dramatic", "dancing"];
+var CAMERAS = ["static", "pan-left", "pan-right", "zoom-in", "zoom-out", "shake", "dolly", "tilt-up", "tilt-down", "beat-pulse"];
+var sceneSchema = z3.object({
+  description: z3.string().default(""),
+  action: z3.string().default("idle"),
+  camera: z3.string().default("static"),
+  intensity: z3.number().min(0).max(1).default(0.5),
+  characterDirection: z3.enum(["left", "right", "center"]).default("center")
+});
+var analyzeSchema = z3.object({
+  character: z3.enum(["realistic", "cartoon", "fantasy", "none"]).default("cartoon"),
+  environment: z3.string().default("animated-nature"),
+  scenes: z3.array(sceneSchema).min(1),
+  narrationText: z3.string().default("")
+});
+var build_scene_plan_default = defineTool3({
+  name: "build_scene_plan",
+  title: "Build executable scene plan",
+  description: "Convert the raw output of `analyze_video_prompt` into a normalized, execution-ready JSON scene plan (validated actions, cameras, per-scene durations, cumulative timing, and a full render manifest).",
+  inputSchema: {
+    analysis: z3.record(z3.string(), z3.any()).describe("The structuredContent returned by analyze_video_prompt."),
+    fps: z3.number().int().min(12).max(60).default(30),
+    secondsPerScene: z3.number().min(1).max(20).default(4)
+  },
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async ({ analysis, fps, secondsPerScene }, ctx) => {
+    const started = Date.now();
+    const auth2 = requireAuth(ctx);
+    if ("error" in auth2) return { content: [{ type: "text", text: auth2.error }], isError: true };
+    const rl = await checkRateLimit(auth2.userId, "build_scene_plan");
+    if (rl) {
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "build_scene_plan", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { fps, secondsPerScene } });
+      return { content: [{ type: "text", text: rl }], isError: true };
+    }
+    const parsed = analyzeSchema.safeParse(analysis);
+    if (!parsed.success) {
+      await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "build_scene_plan", status: "error", durationMs: Date.now() - started, error: "invalid analysis input", input: { fps, secondsPerScene } });
+      return { content: [{ type: "text", text: "Invalid analysis payload: " + parsed.error.message }], isError: true };
+    }
+    const a = parsed.data;
+    let cursor = 0;
+    const scenes = a.scenes.map((s, i) => {
+      const action = ACTIONS.includes(s.action) ? s.action : "idle";
+      const camera = CAMERAS.includes(s.camera) ? s.camera : "static";
+      const durationMs = Math.round(secondsPerScene * 1e3);
+      const scene = {
+        index: i,
+        description: s.description.trim(),
+        action,
+        camera,
+        intensity: s.intensity,
+        characterDirection: s.characterDirection,
+        startMs: cursor,
+        endMs: cursor + durationMs,
+        durationMs,
+        frames: Math.round(secondsPerScene * fps),
+        imagePrompt: `${s.description}. Character: ${a.character}. Environment: ${a.environment}. Cinematic.`
+      };
+      cursor += durationMs;
+      return scene;
+    });
+    const plan = {
+      version: 1,
+      character: a.character,
+      environment: a.environment,
+      narrationText: a.narrationText,
+      fps,
+      totalDurationMs: cursor,
+      sceneCount: scenes.length,
+      scenes
+    };
+    await logCall({ userId: auth2.userId, clientId: auth2.clientId, toolName: "build_scene_plan", status: "success", durationMs: Date.now() - started, input: { fps, secondsPerScene, sceneCount: scenes.length } });
+    return {
+      content: [{ type: "text", text: JSON.stringify(plan, null, 2) }],
+      structuredContent: plan
+    };
+  }
+});
+
 // src/lib/mcp/index.ts
+var projectRef = "gwsjtbyqnwinykgtlmbv";
 var mcp_default = defineMcp({
   name: "agon-video-mcp",
   title: "Agon Video Studio MCP",
-  version: "0.1.0",
-  instructions: "Tools for the Agon animated video studio. Use `analyze_video_prompt` to plan a scene-by-scene shot list from a description, and `generate_scene_image` to render an individual scene image.",
-  tools: [analyze_prompt_default, generate_image_default]
+  version: "0.2.0",
+  instructions: "Tools for the Agon animated video studio. Use `analyze_video_prompt` to plan a shot list, `build_scene_plan` to turn that plan into a validated execution-ready JSON, and `generate_scene_image` to render an individual scene image. All tools require the caller to sign in via OAuth.",
+  auth: auth.oauth.issuer({
+    issuer: `https://${projectRef}.supabase.co/auth/v1`,
+    acceptedAudiences: "authenticated"
+  }),
+  tools: [analyze_prompt_default, build_scene_plan_default, generate_image_default]
 });
 
 // lovable-mcp-supabase-entry.ts

@@ -3,12 +3,16 @@
   "sdk_version": "0.22.2",
   "path": "/functions/v1/mcp",
   "auth": {
-    "type": "none"
+    "type": "oauth",
+    "issuer": "https://gwsjtbyqnwinykgtlmbv.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
   },
   "mcp": {
     "server": {
       "name": "agon-video-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "title": "Agon Video Studio MCP"
     },
     "tools": [
@@ -49,6 +53,46 @@
           },
           "required": [
             "prompt"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "build_scene_plan",
+        "title": "Build executable scene plan",
+        "description": "Convert the raw output of `analyze_video_prompt` into a normalized, execution-ready JSON scene plan (validated actions, cameras, per-scene durations, cumulative timing, and a full render manifest).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "analysis": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {},
+              "description": "The structuredContent returned by analyze_video_prompt."
+            },
+            "fps": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 12,
+              "maximum": 60
+            },
+            "secondsPerScene": {
+              "default": 4,
+              "type": "number",
+              "minimum": 1,
+              "maximum": 20
+            }
+          },
+          "required": [
+            "analysis"
           ]
         },
         "outputSchema": null

@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      mcp_call_logs: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          id: number
+          input: Json
+          status: string
+          tool_name: string
+          user_id: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: number
+          input?: Json
+          status: string
+          tool_name: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: number
+          input?: Json
+          status?: string
+          tool_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mcp_rate_limits: {
+        Row: {
+          called_at: string
+          id: number
+          tool_name: string
+          user_id: string
+        }
+        Insert: {
+          called_at?: string
+          id?: number
+          tool_name: string
+          user_id: string
+        }
+        Update: {
+          called_at?: string
+          id?: number
+          tool_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       veo_events: {
         Row: {
           client_id: string

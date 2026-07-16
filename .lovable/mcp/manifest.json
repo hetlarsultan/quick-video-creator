@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "sdk_version": "0.22.2",
+  "path": "/functions/v1/mcp",
+  "auth": {
+    "type": "none"
+  },
+  "mcp": {
+    "server": {
+      "name": "agon-video-mcp",
+      "version": "0.1.0",
+      "title": "Agon Video Studio MCP"
+    },
+    "tools": [
+      {
+        "name": "analyze_video_prompt",
+        "title": "Analyze video prompt",
+        "description": "Analyze an Arabic or English video description and return a scene-by-scene shot plan (character, environment, camera moves, actions, narration) suitable for animated video production.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": false,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The video description to analyze."
+            },
+            "sceneCount": {
+              "default": 4,
+              "description": "Number of scenes to plan.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "default": "text-to-video",
+              "description": "Kind of video generation.",
+              "type": "string",
+              "enum": [
+                "text-to-video",
+                "image-to-video"
+              ]
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "generate_scene_image",
+        "title": "Generate scene image",
+        "description": "Generate a single scene image via Lovable AI (Gemini image models). Returns a data URL for the produced image.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": false,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image description."
+            },
+            "style": {
+              "description": "Optional art style, e.g. 'cinematic', 'cartoon'.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}

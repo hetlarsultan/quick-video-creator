@@ -146,9 +146,20 @@ var generate_image_default = defineTool2({
     style: z2.string().optional().describe("Optional art style, e.g. 'cinematic', 'cartoon'.")
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-  handler: async ({ prompt, style }) => {
+  handler: async ({ prompt, style }, ctx) => {
+    const started = Date.now();
+    const auth = requireAuth(ctx);
+    if ("error" in auth) {
+      return { content: [{ type: "text", text: auth.error }], isError: true };
+    }
+    const rl = await checkRateLimit(auth.userId, "generate_scene_image");
+    if (rl) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, style } });
+      return { content: [{ type: "text", text: rl }], isError: true };
+    }
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, style } });
       return {
         content: [{ type: "text", text: "LOVABLE_API_KEY is not configured on the server." }],
         isError: true
@@ -176,6 +187,7 @@ var generate_image_default = defineTool2({
         const finishReason = data.choices?.[0]?.native_finish_reason || data.choices?.[0]?.finish_reason;
         const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
         if (finishReason === "IMAGE_SAFETY" || !imageUrl) continue;
+        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "success", durationMs: Date.now() - started, input: { prompt, style, model } });
         return {
           content: [{ type: "text", text: imageUrl }],
           structuredContent: { imageUrl, model }
@@ -184,6 +196,7 @@ var generate_image_default = defineTool2({
         continue;
       }
     }
+    await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "generate_scene_image", status: "error", durationMs: Date.now() - started, error: "all image models failed", input: { prompt, style } });
     return {
       content: [{ type: "text", text: "Could not generate image. Try a different prompt." }],
       isError: true

@@ -8,6 +8,48 @@ import { defineMcp } from "npm:@lovable.dev/mcp-js@0.22.2";
 // src/lib/mcp/tools/analyze-prompt.ts
 import { defineTool } from "npm:@lovable.dev/mcp-js@0.22.2";
 import { z } from "npm:zod@^4.4.3";
+
+// src/lib/mcp/_shared.ts
+import { createClient } from "npm:@supabase/supabase-js@^2.100.1";
+var RATE_LIMIT_PER_MIN = 20;
+function admin() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+async function checkRateLimit(userId, toolName) {
+  const db = admin();
+  const since = new Date(Date.now() - 6e4).toISOString();
+  const { count, error } = await db.from("mcp_rate_limits").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("tool_name", toolName).gte("called_at", since);
+  if (error) return null;
+  if ((count ?? 0) >= RATE_LIMIT_PER_MIN) {
+    return `Rate limit exceeded: max ${RATE_LIMIT_PER_MIN} calls/min for ${toolName}. Try again shortly.`;
+  }
+  await db.from("mcp_rate_limits").insert({ user_id: userId, tool_name: toolName });
+  return null;
+}
+async function logCall(params) {
+  try {
+    await admin().from("mcp_call_logs").insert({
+      user_id: params.userId,
+      client_id: params.clientId ?? null,
+      tool_name: params.toolName,
+      status: params.status,
+      duration_ms: params.durationMs,
+      error: params.error ?? null,
+      input: params.input
+    });
+  } catch {
+  }
+}
+function requireAuth(ctx) {
+  if (!ctx.isAuthenticated()) {
+    return { error: "Authentication required. Sign in to use this tool." };
+  }
+  return { userId: ctx.getUserId(), clientId: ctx.getClientId() };
+}
+
+// src/lib/mcp/tools/analyze-prompt.ts
 var analyze_prompt_default = defineTool({
   name: "analyze_video_prompt",
   title: "Analyze video prompt",
@@ -18,9 +60,20 @@ var analyze_prompt_default = defineTool({
     type: z.enum(["text-to-video", "image-to-video"]).default("text-to-video").describe("Kind of video generation.")
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-  handler: async ({ prompt, sceneCount, type }) => {
+  handler: async ({ prompt, sceneCount, type }, ctx) => {
+    const started = Date.now();
+    const auth = requireAuth(ctx);
+    if ("error" in auth) {
+      return { content: [{ type: "text", text: auth.error }], isError: true };
+    }
+    const rl = await checkRateLimit(auth.userId, "analyze_video_prompt");
+    if (rl) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, sceneCount, type } });
+      return { content: [{ type: "text", text: rl }], isError: true };
+    }
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: "LOVABLE_API_KEY is not configured on the server." }],
         isError: true
@@ -47,6 +100,7 @@ Video type: ${type}` }
       });
       if (!res.ok) {
         const t = await res.text();
+        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: `gateway ${res.status}: ${t.slice(0, 200)}`, input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: `AI gateway error ${res.status}: ${t}` }],
           isError: true
@@ -59,16 +113,19 @@ Video type: ${type}` }
       try {
         parsed = JSON.parse(jsonStr);
       } catch {
+        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "invalid JSON from model", input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: content }],
           isError: true
         };
       }
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "success", durationMs: Date.now() - started, input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }],
         structuredContent: parsed
       };
     } catch (e) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: e instanceof Error ? e.message : "unknown", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: e instanceof Error ? e.message : "Unknown error" }],
         isError: true

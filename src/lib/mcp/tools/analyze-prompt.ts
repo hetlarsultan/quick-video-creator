@@ -1,5 +1,6 @@
 import { defineTool } from "@lovable.dev/mcp-js";
 import { z } from "zod";
+import { checkRateLimit, logCall, requireAuth } from "../_shared";
 
 export default defineTool({
   name: "analyze_video_prompt",
@@ -15,9 +16,20 @@ export default defineTool({
       .describe("Kind of video generation."),
   },
   annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-  handler: async ({ prompt, sceneCount, type }) => {
+  handler: async ({ prompt, sceneCount, type }, ctx) => {
+    const started = Date.now();
+    const auth = requireAuth(ctx);
+    if ("error" in auth) {
+      return { content: [{ type: "text", text: auth.error }], isError: true };
+    }
+    const rl = await checkRateLimit(auth.userId, "analyze_video_prompt");
+    if (rl) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "rate_limited", durationMs: Date.now() - started, error: rl, input: { prompt, sceneCount, type } });
+      return { content: [{ type: "text", text: rl }], isError: true };
+    }
     const key = process.env.LOVABLE_API_KEY;
     if (!key) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "missing LOVABLE_API_KEY", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: "LOVABLE_API_KEY is not configured on the server." }],
         isError: true,
@@ -45,6 +57,7 @@ Return ONLY valid JSON, no markdown.`;
       });
       if (!res.ok) {
         const t = await res.text();
+        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: `gateway ${res.status}: ${t.slice(0,200)}`, input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: `AI gateway error ${res.status}: ${t}` }],
           isError: true,
@@ -57,16 +70,19 @@ Return ONLY valid JSON, no markdown.`;
       try {
         parsed = JSON.parse(jsonStr);
       } catch {
+        await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: "invalid JSON from model", input: { prompt, sceneCount, type } });
         return {
           content: [{ type: "text", text: content }],
           isError: true,
         };
       }
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "success", durationMs: Date.now() - started, input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }],
         structuredContent: parsed as Record<string, unknown>,
       };
     } catch (e) {
+      await logCall({ userId: auth.userId, clientId: auth.clientId, toolName: "analyze_video_prompt", status: "error", durationMs: Date.now() - started, error: e instanceof Error ? e.message : "unknown", input: { prompt, sceneCount, type } });
       return {
         content: [{ type: "text", text: e instanceof Error ? e.message : "Unknown error" }],
         isError: true,

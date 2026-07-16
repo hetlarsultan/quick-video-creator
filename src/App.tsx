@@ -13,6 +13,9 @@ import SettingsPage from "./pages/SettingsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ScanPage from "./pages/ScanPage";
 import LogsPage from "./pages/LogsPage";
+import MCPLogsPage from "./pages/MCPLogsPage";
+import LoginPage from "./pages/LoginPage";
+import OAuthConsentPage from "./pages/OAuthConsentPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +36,9 @@ const App = () => (
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/logs" element={<LogsPage />} />
+              <Route path="/mcp-logs" element={<MCPLogsPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
               <Route path="/project/:id" element={<ProjectDetailPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

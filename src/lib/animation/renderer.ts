@@ -6,6 +6,7 @@ import { AnimatedVideoOptions, LoadedScene, SceneMotion } from './types';
 import { computeCamera } from './camera';
 import { computeCharacter } from './character';
 import { createParticles, drawParticles, drawVignette, drawSpeedLines, drawImpactEffect, drawMouthAnimation, drawFilmGrain } from './effects';
+import { drawRiggedCharacter } from './rigged-character';
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -67,6 +68,8 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
     enableTalking = false,
     audioBlob,
     sceneMotions,
+    enableRig = true,
+    characterType = 'realistic',
     onProgress,
   } = options;
 
@@ -239,6 +242,21 @@ export async function generateAnimatedVideo(options: AnimatedVideoOptions): Prom
       // Mouth animation for talking
       if (enableTalking && ['talking', 'emotional'].includes(scene.motion.action)) {
         drawMouthAnimation(ctx, width, height, char.energy, timeSec);
+      }
+
+      // Rigged character overlay (articulated skeleton with joints)
+      if (enableRig && characterType !== 'none') {
+        drawRiggedCharacter(ctx, {
+          action: enableTalking && scene.motion.action === 'idle' ? 'talking' : scene.motion.action,
+          timeSec,
+          localT,
+          intensity: scene.motion.intensity,
+          direction: scene.motion.characterDirection,
+          characterType: characterType === 'auto' ? 'realistic' : characterType,
+          syllablesPerSec,
+          width,
+          height,
+        });
       }
 
       // Particles

@@ -526,6 +526,8 @@ export default function CreatePage() {
           enableTalking: enableTalking && effectiveChar !== 'none',
           audioBlob,
           sceneMotions: sceneMotions.length > 0 ? sceneMotions : undefined,
+          characterType: effectiveChar as 'realistic' | 'cartoon' | 'fantasy' | 'none' | 'auto',
+          enableRig: effectiveChar !== 'none',
           onProgress: (pct) => setProgress(55 + pct * 0.4),
         });
 
@@ -568,6 +570,8 @@ export default function CreatePage() {
                 enableTalking: enableTalking && effectiveChar !== 'none',
                 audioBlob,
                 sceneMotions: sceneMotions.length > 0 ? sceneMotions : undefined,
+              characterType: effectiveChar as 'realistic' | 'cartoon' | 'fantasy' | 'none' | 'auto',
+              enableRig: effectiveChar !== 'none',
               });
               const newUrl = URL.createObjectURL(newVideo);
               updateProject(id, {

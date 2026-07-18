@@ -22,6 +22,10 @@ export interface AnimatedVideoOptions {
   enableTalking?: boolean;
   audioBlob?: Blob | null;
   sceneMotions?: SceneMotion[];
+  /** Draw an articulated character rig on top of the scene. Default true. */
+  enableRig?: boolean;
+  /** Character look for the rig. */
+  characterType?: 'realistic' | 'cartoon' | 'fantasy' | 'none' | 'auto';
   onProgress?: (pct: number) => void;
 }
 
